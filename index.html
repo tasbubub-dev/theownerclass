@@ -7,6 +7,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script>window.react = window.React;</script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/lucide-react@0.383.0/dist/umd/lucide-react.js"></script>
 <style>
@@ -18,7 +19,7 @@
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel" data-presets="react">
+<script type="text/plain" id="app-source">
 const {
   ChevronRight, ChevronLeft, ChevronDown, Menu, X, DollarSign, CalendarCheck,
   QrCode, FolderKanban, LogOut, Clock, MapPin, Video, CheckCircle2, XCircle,
@@ -388,7 +389,7 @@ function ProfileStrip({ user, membership }) {
 
 /* ============================================================ */
 
-export default function App() {
+function App() {
   const [users, setUsers] = useState(initialUsers);
   const [payments, setPayments] = useState(initialPayments);
   const [bookings, setBookings] = useState(initialBookings);
@@ -1401,6 +1402,11 @@ function Login({ users, onLogin }) {
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(React.createElement(App));
+</script>
+<script>
+  const src = document.getElementById("app-source").textContent;
+  const out = Babel.transform(src, { presets: [["react", { runtime: "classic" }]] }).code;
+  (0, eval)(out);
 </script>
 </body>
 </html>
