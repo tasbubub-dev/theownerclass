@@ -5,7 +5,6 @@ Booking web app prototype for The Owner Class — a class/pass booking system (O
 ## Files
 
 - `index.html` — standalone app, open directly in a browser or serve via GitHub Pages
-- `TheOwnerClass.html` — source copy (same content as `index.html`)
 - `TheOwnerClass.jsx` — React component source
 
 ## Run locally
