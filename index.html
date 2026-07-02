@@ -11,6 +11,10 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://unpkg.com/lucide-react@0.383.0/dist/umd/lucide-react.js"></script>
 <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -34,13 +38,35 @@ const {
   QrCode, FolderKanban, LogOut, Clock, MapPin, Video, CheckCircle2, XCircle,
   Upload, ShieldCheck, ScanLine, Users, UserCog, BookOpen, FileCheck,
   ClipboardList, AlertTriangle, Loader2, CircleUserRound, Link2, Ticket,
-  ArrowRight, Pencil, Save, Camera, Circle, CheckCircle,
+  ArrowRight, Pencil, Save, Camera, Circle, CheckCircle, Eye, EyeOff,
 } = LucideReact;
 const { useState, useMemo, useRef, useEffect } = React;
 
 /* ============================================================
-   THE OWNER CLASS — Booking Web App (Prototype, mock data)
+   THE OWNER CLASS — Booking Web App (เชื่อม Firebase จริง)
    ============================================================ */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAY2lxqBX8fe1iF7grohVfxIf02m95c6IE",
+  authDomain: "class-booking-theowner.firebaseapp.com",
+  projectId: "class-booking-theowner",
+  storageBucket: "class-booking-theowner.firebasestorage.app",
+  messagingSenderId: "292582248782",
+  appId: "1:292582248782:web:2d861621de438b0b414e1f",
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+// Firestore Timestamp → ms (รองรับทั้ง Timestamp object และเลข ms เดิม)
+const tsToMs = (ts) => (ts && typeof ts.toMillis === "function") ? ts.toMillis() : (typeof ts === "number" ? ts : null);
+// อัปโหลดไฟล์ขึ้น Firebase Storage แล้วคืน download URL
+const uploadFile = async (file, path) => {
+  const ref = storage.ref().child(path);
+  await ref.put(file);
+  return ref.getDownloadURL();
+};
 
 const NOW = Date.now();
 const H = 3600 * 1000;
@@ -48,217 +74,13 @@ const D = 24 * H;
 const BRAND = "#E8721C";
 const INK = "#1b2233";
 
-/* ---------- MOCK DATA ---------- */
-
-const PASSES = {
-  Member: {
-    name: "Member", price: 600, duration_days: 90,
-    pass_description: "Membership 3 เดือน เข้าร่วมได้ทุกคลาส ทั้ง Onsite และ Online",
-    pass_image: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzFiNDMzMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMyZDhhNWYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiBmaWxsPSJ1cmwoI2cpIi8+CiAgPGNpcmNsZSBjeD0iMzgwIiBjeT0iMTIwIiByPSIxODAiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wOCkiLz4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSI1MjAiIHI9IjE0MCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA2KSIvPgogIDxyZWN0IHg9IjMwIiB5PSIxODAiIHdpZHRoPSI0MjAiIGhlaWdodD0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjMpIi8+CiAgPHRleHQgeD0iNDAiIHk9IjEyMCIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNTIiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSJ3aGl0ZSI+T05FPC90ZXh0PgogIDx0ZXh0IHg9IjQwIiB5PSIxNjAiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjIwIiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNykiPlRoZSBPd25lciBDbGFzczwvdGV4dD4KICA8dGV4dCB4PSI0MCIgeT0iMjUwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSI3MiIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIj4xNTA8L3RleHQ+CiAgPHRleHQgeD0iNDAiIHk9IjI5NSIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9InJnYmEoMjU1LDIyMCwxNTAsMSkiPuC4muC4suC4lzwvdGV4dD4KICA8dGV4dCB4PSI0MCIgeT0iMzcwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjg1KSIgdGV4dC1kZWNvcmF0aW9uPSIiPuC4iOC4reC4h+C5hOC4lOC5iSAxIOC4hOC4o+C4seC5ieC4hzwvdGV4dD4KICA8cmVjdCB4PSIzMCIgeT0iNTgwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjIiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4yKSIvPgogIDx0ZXh0IHg9IjQwIiB5PSI2MTUiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNSkiPnRoZW93bmVyY2xhc3MuY29tPC90ZXh0Pgo8L3N2Zz4=",
-  },
-  One: {
-    name: "One", price: 150, duration_days: 0,
-    pass_description: "ทดลองเข้าร่วม เข้าคลาสได้ 1 ครั้ง เลือก Onsite หรือ Online",
-    pass_image: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzFiNDMzMiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMyZDhhNWYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiBmaWxsPSJ1cmwoI2cpIi8+CiAgPGNpcmNsZSBjeD0iMzgwIiBjeT0iMTIwIiByPSIxODAiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4wOCkiLz4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSI1MjAiIHI9IjE0MCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjA2KSIvPgogIDxyZWN0IHg9IjMwIiB5PSIxODAiIHdpZHRoPSI0MjAiIGhlaWdodD0iMiIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjMpIi8+CiAgPHRleHQgeD0iNDAiIHk9IjEyMCIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNTIiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSJ3aGl0ZSI+T05FPC90ZXh0PgogIDx0ZXh0IHg9IjQwIiB5PSIxNjAiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjIwIiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNykiPlRoZSBPd25lciBDbGFzczwvdGV4dD4KICA8dGV4dCB4PSI0MCIgeT0iMjUwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSI3MiIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIj4xNTA8L3RleHQ+CiAgPHRleHQgeD0iNDAiIHk9IjI5NSIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9InJnYmEoMjU1LDIyMCwxNTAsMSkiPuC4muC4suC4lzwvdGV4dD4KICA8dGV4dCB4PSI0MCIgeT0iMzcwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjg1KSIgdGV4dC1kZWNvcmF0aW9uPSIiPuC4iOC4reC4h+C5hOC4lOC5iSAxIOC4hOC4o+C4seC5ieC4hzwvdGV4dD4KICA8cmVjdCB4PSIzMCIgeT0iNTgwIiB3aWR0aD0iNDIwIiBoZWlnaHQ9IjIiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4yKSIvPgogIDx0ZXh0IHg9IjQwIiB5PSI2MTUiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNSkiPnRoZW93bmVyY2xhc3MuY29tPC90ZXh0Pgo8L3N2Zz4=",
-  },
-};
+/* ---------- ข้อมูลบัญชีรับโอน (ยังไม่มี collection ใน Firestore ให้เชื่อม — คงไว้แบบ static) ---------- */
 
 const ACCOUNT = {
   account_number: "014-7-128268", account_owner: "สุพัตรา หงษ์วิเศษ",
   bank_name: "ธนาคารกรุงเทพ จำกัด",
   qrcode_payment: "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=TheOwnerClass-014-7-128268",
 };
-
-/* ---- users: 6 คน ครบทุก role ---- */
-const initialUsers = [
-  { uid: "OW0025", display_name: "ทัศน์พล สมาร์ท",    email: "tasbubub@gmail.com",
-    phone_number: "081-234-5678", line: "OW0025", role: "admin",    memberStatus: "Member",
-    uplineList: "—",               photo_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+CiAgPGNpcmNsZSBjeD0iNzUiIGN5PSI3NSIgcj0iNzUiIGZpbGw9IiMxYTNjNWUiLz4KICA8Y2lyY2xlIGN4PSI3NSIgY3k9IjU4IiByPSIyOCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPGVsbGlwc2UgY3g9Ijc1IiBjeT0iMTE1IiByeD0iNDIiIHJ5PSIzMiIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPHRleHQgeD0iNzUiIHk9Ijg1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIzOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiMxYTNjNWUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC4lzwvdGV4dD4KPC9zdmc+" },
-  { uid: "OW0031", display_name: "วิภาดา เจริญสุข",   email: "wipada@gmail.com",
-    phone_number: "082-111-3344", line: "OW0031", role: "editor",   memberStatus: "Member",
-    uplineList: "ทัศน์พล สมาร์ท", photo_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+CiAgPGNpcmNsZSBjeD0iNzUiIGN5PSI3NSIgcj0iNzUiIGZpbGw9IiMxYjQzMzIiLz4KICA8Y2lyY2xlIGN4PSI3NSIgY3k9IjU4IiByPSIyOCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPGVsbGlwc2UgY3g9Ijc1IiBjeT0iMTE1IiByeD0iNDIiIHJ5PSIzMiIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPHRleHQgeD0iNzUiIHk9Ijg1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIzOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiMxYjQzMzIiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC4pzwvdGV4dD4KPC9zdmc+" },
-  { uid: "OW0044", display_name: "ณัฐพงษ์ วงศ์ดี",   email: "nuttapong@gmail.com",
-    phone_number: "083-555-7788", line: "OW0044", role: "approver", memberStatus: "Member",
-    uplineList: "ทัศน์พล สมาร์ท", photo_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+CiAgPGNpcmNsZSBjeD0iNzUiIGN5PSI3NSIgcj0iNzUiIGZpbGw9IiM0YTE5NDIiLz4KICA8Y2lyY2xlIGN4PSI3NSIgY3k9IjU4IiByPSIyOCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPGVsbGlwc2UgY3g9Ijc1IiBjeT0iMTE1IiByeD0iNDIiIHJ5PSIzMiIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPHRleHQgeD0iNzUiIHk9Ijg1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIzOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiM0YTE5NDIiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC4kzwvdGV4dD4KPC9zdmc+" },
-  { uid: "OW0059", display_name: "ปภนล สุขการัณย์",  email: "wassaporn.s@gmail.com",
-    phone_number: "064-795-1982", line: "OW0059", role: "guest",    memberStatus: "Member",
-    uplineList: "เล็ก มัณธนสร",   photo_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+CiAgPGNpcmNsZSBjeD0iNzUiIGN5PSI3NSIgcj0iNzUiIGZpbGw9IiMwZDNiNWUiLz4KICA8Y2lyY2xlIGN4PSI3NSIgY3k9IjU4IiByPSIyOCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPGVsbGlwc2UgY3g9Ijc1IiBjeT0iMTE1IiByeD0iNDIiIHJ5PSIzMiIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPHRleHQgeD0iNzUiIHk9Ijg1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIzOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiMwZDNiNWUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC4mzwvdGV4dD4KPC9zdmc+" },
-  { uid: "OW0071", display_name: "ธนกร วีระชัย",     email: "thanakorn@gmail.com",
-    phone_number: "089-111-2222", line: "OW0071", role: "scanner",  memberStatus: "Member",
-    uplineList: "—",               photo_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+CiAgPGNpcmNsZSBjeD0iNzUiIGN5PSI3NSIgcj0iNzUiIGZpbGw9IiM2MTRhN2IiLz4KICA8Y2lyY2xlIGN4PSI3NSIgY3k9IjU4IiByPSIyOCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPGVsbGlwc2UgY3g9Ijc1IiBjeT0iMTE1IiByeD0iNDIiIHJ5PSIzMiIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPHRleHQgeD0iNzUiIHk9Ijg1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIzOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiM2MTRhN2IiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC4mDwvdGV4dD4KPC9zdmc+" },
-  { uid: "OW0088", display_name: "สมหญิง ทดสอบใหม่", email: "newbie@gmail.com",
-    phone_number: "092-000-0000", line: "OW0088", role: "guest",    memberStatus: "Guest",
-    uplineList: "—",               photo_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+CiAgPGNpcmNsZSBjeD0iNzUiIGN5PSI3NSIgcj0iNzUiIGZpbGw9IiM3YjRmMmUiLz4KICA8Y2lyY2xlIGN4PSI3NSIgY3k9IjU4IiByPSIyOCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPGVsbGlwc2UgY3g9Ijc1IiBjeT0iMTE1IiByeD0iNDIiIHJ5PSIzMiIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC45Ii8+CiAgPHRleHQgeD0iNzUiIHk9Ijg1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIzOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiM3YjRmMmUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC4qjwvdGV4dD4KPC9zdmc+" },
-];
-
-/* ---- classes: 5 คลาส รูปต่างกัน ---- */
-const initialClasses = [
-  {
-    id: "C_SOON",
-    className: "เทคนิคปิดการขายออนไลน์",
-    active: true, is_free_booking: false,
-    instructorName: "อ.สมชาย ปิยะรัตน์",
-    location: "RS Group Co.,Ltd. ถ.ประเสริฐมนูกิจ",
-    meeting_url: "https://us02web.zoom.us/j/88010619672",
-    description: "เจาะลึกเทคนิคปิดการขาย ตั้งแต่ทักแรกจนปิดดีล พร้อมสคริปต์และ roleplay จริง ใช้ได้ทั้ง Line / DM / โทรศัพท์",
-    class_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMxYTNjNWUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMGQyMTM3Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJvdmVybGF5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMCkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI3MCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC4yKSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC43KSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjYmcpIi8+CiAgPGcgZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNykiIHN0cm9rZS13aWR0aD0iNiI+PHJlY3QgeD0iMTMwIiB5PSIxNzAiIHdpZHRoPSIyMjAiIGhlaWdodD0iMTYwIiByeD0iMTIiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4xNSkiLz48bGluZSB4MT0iMTYwIiB5MT0iMjEwIiB4Mj0iMzIwIiB5Mj0iMjEwIi8+PGxpbmUgeDE9IjE2MCIgeTE9IjI0MCIgeDI9IjMyMCIgeTI9IjI0MCIvPjxsaW5lIHgxPSIxNjAiIHkxPSIyNzAiIHgyPSIyNjAiIHkyPSIyNzAiLz48Y2lyY2xlIGN4PSIzMDAiIGN5PSIzMDAiIHI9IjMwIiBmaWxsPSJyZ2JhKDEwMCwyNTUsMTUwLDAuNSkiLz48dGV4dCB4PSIyOTMiIHk9IjMwOCIgZm9udC1zaXplPSIyMiIgZmlsbD0id2hpdGUiPuKckzwvdGV4dD48L2c+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjb3ZlcmxheSkiLz4KICA8cmVjdCB4PSIwIiB5PSI0ODAiIHdpZHRoPSI0ODAiIGhlaWdodD0iMTYwIiBmaWxsPSJyZ2JhKDAsMCwwLDAuNSkiLz4KICA8dGV4dCB4PSIzMCIgeT0iNTMwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIj7guYDguJfguITguJnguLTguITguJvguLTguJTguIHguLLguKPguILguLLguKLguK3guK3guJnguYTguKXguJnguYw8L3RleHQ+CiAgPHRleHQgeD0iMzAiIHk9IjU2OCIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTkiIGZpbGw9InJnYmEoMjU1LDIyMCwxNTAsMSkiPlNhbGVzIE1hc3Rlcnk8L3RleHQ+CiAgPHJlY3QgeD0iMzAiIHk9IjU5MCIgd2lkdGg9IjYwIiBoZWlnaHQ9IjQiIGZpbGw9InJnYmEoMjU1LDE4MCw2MCwwLjkpIiByeD0iMiIvPgo8L3N2Zz4=",
-    startTime: NOW + 1.5 * H, endTime: NOW + 3.5 * H,
-    sessions: { Onsite: { capacity: 40, booked: 18 }, Online: { capacity: 100, booked: 42 } },
-  },
-  {
-    id: "C_2",
-    className: "เวิร์กช็อปวางระบบธุรกิจ",
-    active: true, is_free_booking: false,
-    instructorName: "อ.วิภาดา เจริญสุข",
-    location: "RS Group Co.,Ltd. ถ.ประเสริฐมนูกิจ",
-    meeting_url: "https://us02web.zoom.us/j/987654321",
-    description: "ลงมือวางโครงสร้างระบบธุรกิจให้ทำงานได้แม้เจ้าของไม่อยู่ ครอบคลุม SOP / KPI / ระบบรายงาน",
-    class_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMxYjQzMzIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMGEyNjE4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJvdmVybGF5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMCkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI3MCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC4yKSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC43KSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjYmcpIi8+CiAgPGcgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjYpIj48Y2lyY2xlIGN4PSIxODAiIGN5PSIxOTAiIHI9IjM1Ii8+PGVsbGlwc2UgY3g9IjE4MCIgY3k9IjI3MCIgcng9IjU1IiByeT0iNDAiLz48Y2lyY2xlIGN4PSIzMDAiIGN5PSIyMDAiIHI9IjMwIi8+PGVsbGlwc2UgY3g9IjMwMCIgY3k9IjI3NSIgcng9IjQ4IiByeT0iMzYiLz48Y2lyY2xlIGN4PSIyNDAiIGN5PSIxODAiIHI9IjQwIi8+PGVsbGlwc2UgY3g9IjI0MCIgY3k9IjI2NSIgcng9IjYwIiByeT0iNDQiLz48L2c+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjb3ZlcmxheSkiLz4KICA8cmVjdCB4PSIwIiB5PSI0ODAiIHdpZHRoPSI0ODAiIGhlaWdodD0iMTYwIiBmaWxsPSJyZ2JhKDAsMCwwLDAuNSkiLz4KICA8dGV4dCB4PSIzMCIgeT0iNTMwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIj7guYDguKfguLTguKPguYzguIHguIrguYfguK3guJvguKfguLLguIfguKPguLDguJrguJrguJjguLjguKPguIHguLTguIg8L3RleHQ+CiAgPHRleHQgeD0iMzAiIHk9IjU2OCIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTkiIGZpbGw9InJnYmEoMjU1LDIyMCwxNTAsMSkiPkJ1c2luZXNzIFN5c3RlbTwvdGV4dD4KICA8cmVjdCB4PSIzMCIgeT0iNTkwIiB3aWR0aD0iNjAiIGhlaWdodD0iNCIgZmlsbD0icmdiYSgyNTUsMTgwLDYwLDAuOSkiIHJ4PSIyIi8+Cjwvc3ZnPg==",
-    startTime: NOW + 2 * D, endTime: NOW + 2 * D + 3 * H,
-    sessions: { Onsite: { capacity: 40, booked: 30 }, Online: { capacity: 100, booked: 61 } },
-  },
-  {
-    id: "C_3",
-    className: "การเงินสำหรับเจ้าของกิจการ",
-    active: true, is_free_booking: false,
-    instructorName: "อ.ณัฐพงษ์ วงศ์ดี",
-    location: "Online เท่านั้น",
-    meeting_url: "https://us02web.zoom.us/j/555222888",
-    description: "อ่านงบการเงินให้เป็น บริหารกระแสเงินสดให้อยู่รอด และวางแผนภาษีเบื้องต้นสำหรับ SME",
-    class_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiM0YTE5NDIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMmQwZjI4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJvdmVybGF5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMCkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI3MCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC4yKSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC43KSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjYmcpIi8+CiAgPGcgZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNykiIHN0cm9rZS13aWR0aD0iOCI+PHJlY3QgeD0iMTIwIiB5PSIyNjAiIHdpZHRoPSI1MCIgaGVpZ2h0PSI4MCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjQpIi8+PHJlY3QgeD0iMTk1IiB5PSIyMTAiIHdpZHRoPSI1MCIgaGVpZ2h0PSIxMzAiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC41KSIvPjxyZWN0IHg9IjI3MCIgeT0iMTcwIiB3aWR0aD0iNTAiIGhlaWdodD0iMTcwIiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNikiLz48cG9seWxpbmUgcG9pbnRzPSIxMjAsMzIwIDE5NSwyNjAgMjcwLDIzMCAzNzAsMTgwIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyMDAsMC45KSIgc3Ryb2tlLXdpZHRoPSI0Ii8+PC9nPgogIDxyZWN0IHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiBmaWxsPSJ1cmwoI292ZXJsYXkpIi8+CiAgPHJlY3QgeD0iMCIgeT0iNDgwIiB3aWR0aD0iNDgwIiBoZWlnaHQ9IjE2MCIgZmlsbD0icmdiYSgwLDAsMCwwLjUpIi8+CiAgPHRleHQgeD0iMzAiIHk9IjUzMCIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjgiIGZvbnQtd2VpZ2h0PSJib2xkIiBmaWxsPSJ3aGl0ZSI+4LiB4Liy4Lij4LmA4LiH4Li04LiZ4LmA4LiI4LmJ4Liy4LiC4Lit4LiH4LiB4Li04LiI4LiB4Liy4LijPC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSI1NjgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE5IiBmaWxsPSJyZ2JhKDI1NSwyMjAsMTUwLDEpIj5GaW5hbmNlICYgQ2FzaCBGbG93PC90ZXh0PgogIDxyZWN0IHg9IjMwIiB5PSI1OTAiIHdpZHRoPSI2MCIgaGVpZ2h0PSI0IiBmaWxsPSJyZ2JhKDI1NSwxODAsNjAsMC45KSIgcng9IjIiLz4KPC9zdmc+",
-    startTime: NOW + 5 * D, endTime: NOW + 5 * D + 2 * H,
-    sessions: { Onsite: { capacity: 0, booked: 0 }, Online: { capacity: 100, booked: 12 } },
-  },
-  {
-    id: "C_4",
-    className: "Millionaire MIND สร้างชีวิตระดับเศรษฐี",
-    active: true, is_free_booking: false,
-    instructorName: "อ.วิสูตร เดชะภักรวสุ",
-    location: "บริษัท อาร์เอส กรุ๊ป จำกัด ถ.ประเสริฐมนูกิจ",
-    meeting_url: "https://us02web.zoom.us/j/880106196722",
-    description: "ปรับ Mindset จากพนักงานสู่เจ้าของกิจการ เรียนรู้นิสัยและกรอบคิดของคนรวย พร้อม workshop ออกแบบชีวิต",
-    class_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMzZDJiMWYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMWExMDA4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJvdmVybGF5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMCkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI3MCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC4yKSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC43KSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjYmcpIi8+CiAgPGcgZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNjUpIiBzdHJva2Utd2lkdGg9IjYiPjxjaXJjbGUgY3g9IjI0MCIgY3k9IjIxMCIgcj0iNzAiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4xNSkiLz48Y2lyY2xlIGN4PSIyNDAiIGN5PSIyMTAiIHI9IjQ1IiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMikiLz48Y2lyY2xlIGN4PSIyNDAiIGN5PSIyMTAiIHI9IjIyIiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuMzUpIi8+PGxpbmUgeDE9IjI0MCIgeTE9IjE0MCIgeDI9IjI0MCIgeTI9IjEwMCIvPjxsaW5lIHgxPSIzMTAiIHkxPSIyMTAiIHgyPSIzNTAiIHkyPSIyMTAiLz48bGluZSB4MT0iMjQwIiB5MT0iMjgwIiB4Mj0iMjQwIiB5Mj0iMzIwIi8+PGxpbmUgeDE9IjE3MCIgeTE9IjIxMCIgeDI9IjEzMCIgeTI9IjIxMCIvPjwvZz4KICA8cmVjdCB3aWR0aD0iNDgwIiBoZWlnaHQ9IjY0MCIgZmlsbD0idXJsKCNvdmVybGF5KSIvPgogIDxyZWN0IHg9IjAiIHk9IjQ4MCIgd2lkdGg9IjQ4MCIgaGVpZ2h0PSIxNjAiIGZpbGw9InJnYmEoMCwwLDAsMC41KSIvPgogIDx0ZXh0IHg9IjMwIiB5PSI1MzAiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjI4IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiPk1pbGxpb25haXJlIE1JTkQ8L3RleHQ+CiAgPHRleHQgeD0iMzAiIHk9IjU2OCIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTkiIGZpbGw9InJnYmEoMjU1LDIyMCwxNTAsMSkiPuC4quC4o+C5ieC4suC4h+C4iuC4teC4p+C4tOC4leC4o+C4sOC4lOC4seC4muC5gOC4qOC4o+C4qeC4kOC4tTwvdGV4dD4KICA8cmVjdCB4PSIzMCIgeT0iNTkwIiB3aWR0aD0iNjAiIGhlaWdodD0iNCIgZmlsbD0icmdiYSgyNTUsMTgwLDYwLDAuOSkiIHJ4PSIyIi8+Cjwvc3ZnPg==",
-    startTime: NOW + 10 * D, endTime: NOW + 10 * D + 4 * H,
-    sessions: { Onsite: { capacity: 50, booked: 5 }, Online: { capacity: 200, booked: 28 } },
-  },
-  {
-    id: "C_PAST1",
-    className: "เจาะลึก Social Media Marketing",
-    active: true, is_free_booking: false,
-    instructorName: "อ.สมชาย ปิยะรัตน์",
-    location: "RS Group Co.,Ltd. ถ.ประเสริฐมนูกิจ",
-    meeting_url: "https://us02web.zoom.us/j/000111222",
-    description: "สอนการทำ Content / Facebook Ads / TikTok ให้ยอดขายพุ่ง (คลาสที่ผ่านไปแล้ว)",
-    class_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMwZDNiNWUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMDYyNDNhIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJvdmVybGF5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMCkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI3MCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC4yKSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC43KSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjYmcpIi8+CiAgPGcgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjYpIj48Y2lyY2xlIGN4PSIxODAiIGN5PSIyMDAiIHI9IjMwIi8+PGNpcmNsZSBjeD0iMzAwIiBjeT0iMTgwIiByPSIzMCIvPjxjaXJjbGUgY3g9IjI0MCIgY3k9IjI3MCIgcj0iMzAiLz48bGluZSB4MT0iMTgwIiB5MT0iMjAwIiB4Mj0iMzAwIiB5Mj0iMTgwIiBzdHJva2U9InJnYmEoMjU1LDI1NSwyNTUsMC41KSIgc3Ryb2tlLXdpZHRoPSI1Ii8+PGxpbmUgeDE9IjMwMCIgeTE9IjE4MCIgeDI9IjI0MCIgeTI9IjI3MCIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNSkiIHN0cm9rZS13aWR0aD0iNSIvPjxsaW5lIHgxPSIyNDAiIHkxPSIyNzAiIHgyPSIxODAiIHkyPSIyMDAiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjUpIiBzdHJva2Utd2lkdGg9IjUiLz48L2c+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjb3ZlcmxheSkiLz4KICA8cmVjdCB4PSIwIiB5PSI0ODAiIHdpZHRoPSI0ODAiIGhlaWdodD0iMTYwIiBmaWxsPSJyZ2JhKDAsMCwwLDAuNSkiLz4KICA8dGV4dCB4PSIzMCIgeT0iNTMwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIj5Tb2NpYWwgTWVkaWEgTWFya2V0aW5nPC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSI1NjgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE5IiBmaWxsPSJyZ2JhKDI1NSwyMjAsMTUwLDEpIj5Db250ZW50ICYgQWRzPC90ZXh0PgogIDxyZWN0IHg9IjMwIiB5PSI1OTAiIHdpZHRoPSI2MCIgaGVpZ2h0PSI0IiBmaWxsPSJyZ2JhKDI1NSwxODAsNjAsMC45KSIgcng9IjIiLz4KPC9zdmc+",
-    startTime: NOW - 3 * D, endTime: NOW - 3 * D + 3 * H,
-    sessions: { Onsite: { capacity: 40, booked: 38 }, Online: { capacity: 100, booked: 97 } },
-  },
-  {
-    id: "C_PAST2",
-    className: "Leadership สำหรับผู้นำยุคใหม่",
-    active: true, is_free_booking: false,
-    instructorName: "อ.วิภาดา เจริญสุข",
-    location: "Online เท่านั้น",
-    meeting_url: "https://us02web.zoom.us/j/000333444",
-    description: "สร้างทักษะผู้นำ บริหารทีมให้มีประสิทธิภาพ และสื่อสารอย่างมีพลัง (คลาสที่ผ่านไปแล้ว)",
-    class_url: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMyZDNhMWUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMTUxYTBlIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJvdmVybGF5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMCkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI3MCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC4yKSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC43KSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjYmcpIi8+CiAgPGcgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjYpIj48cG9seWdvbiBwb2ludHM9IjI0MCwxNDAgMjcwLDIyMCAzNjAsMjIwIDI5MCwyNzAgMzIwLDM1MCAyNDAsMzAwIDE2MCwzNTAgMTkwLDI3MCAxMjAsMjIwIDIxMCwyMjAiIGZpbGw9InJnYmEoMjU1LDIyMCwxMDAsMC43KSIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNCkiIHN0cm9rZS13aWR0aD0iMyIvPjwvZz4KICA8cmVjdCB3aWR0aD0iNDgwIiBoZWlnaHQ9IjY0MCIgZmlsbD0idXJsKCNvdmVybGF5KSIvPgogIDxyZWN0IHg9IjAiIHk9IjQ4MCIgd2lkdGg9IjQ4MCIgaGVpZ2h0PSIxNjAiIGZpbGw9InJnYmEoMCwwLDAsMC41KSIvPgogIDx0ZXh0IHg9IjMwIiB5PSI1MzAiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjI4IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiPkxlYWRlcnNoaXAg4Lic4Li54LmJ4LiZ4Liz4Lii4Li44LiE4LmD4Lir4Lih4LmIPC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSI1NjgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE5IiBmaWxsPSJyZ2JhKDI1NSwyMjAsMTUwLDEpIj5Nb2Rlcm4gTGVhZGVyc2hpcDwvdGV4dD4KICA8cmVjdCB4PSIzMCIgeT0iNTkwIiB3aWR0aD0iNjAiIGhlaWdodD0iNCIgZmlsbD0icmdiYSgyNTUsMTgwLDYwLDAuOSkiIHJ4PSIyIi8+Cjwvc3ZnPg==",
-    startTime: NOW - 7 * D, endTime: NOW - 7 * D + 2 * H,
-    sessions: { Onsite: { capacity: 0, booked: 0 }, Online: { capacity: 150, booked: 134 } },
-  },
-];
-
-/* ---- slip images (Unsplash — บิลโอน / สลิปธนาคาร concept) ---- */
-const SLIP_IMGS = [
-  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9IiNmOGY5ZmEiIHJ4PSIwIi8+CiAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI5MCIgZmlsbD0iIzFhM2M1ZSIvPgogIDx0ZXh0IHg9IjI0MCIgeT0iMzgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE4IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC5g+C4muC4ouC4t+C4meC4ouC4seC4meC4geC4suC4o+C5guC4reC4meC5gOC4h+C4tOC4mTwvdGV4dD4KICA8dGV4dCB4PSIyNDAiIHk9IjY4IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjg1KSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VHJhbnNmZXIgUmVjZWlwdDwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMTEwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMTU1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4LiY4LiZ4Liy4LiE4Liy4LijIC8gQmFuazwvdGV4dD4KICA8dGV4dCB4PSIzMCIgeT0iMTgwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNyIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiMyMTI1MjkiPuC4mOC4meC4suC4hOC4suC4o+C4geC4o+C4uOC4h+C5gOC4l+C4njwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMjAwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMjQwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4LiI4Liz4LiZ4Lin4LiZ4LmA4LiH4Li04LiZIC8gQW1vdW50PC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSIyOTUiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjUyIiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iIzFhM2M1ZSI+NjAwPC90ZXh0PgogIDx0ZXh0IHg9IjIwMCIgeT0iMjk1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMiIgZmlsbD0iIzFhM2M1ZSI+IOC4muC4suC4lzwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMzE1IiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMzU1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4Lic4Li54LmJ4Lij4Lix4LiaIC8gUmVjaXBpZW50PC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSIzODAiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iIzIxMjUyOSI+4Liq4Li44Lie4Lix4LiV4Lij4LiyIOC4q+C4h+C4qeC5jOC4p+C4tOC5gOC4qOC4qTwvdGV4dD4KICA8dGV4dCB4PSIzMCIgeT0iNDA1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzQ5NTA1NyI+MDE0LTctMTI4MjY4PC90ZXh0PgogIDxyZWN0IHg9IjIwIiB5PSI0MjUiIHdpZHRoPSI0NDAiIGhlaWdodD0iMSIgZmlsbD0iI2RlZTJlNiIvPgogIDx0ZXh0IHg9IjMwIiB5PSI0NjMiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNmM3NTdkIj7guKfguLHguJnguJfguLXguYggLyBEYXRlPC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSI0ODgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmaWxsPSIjMjEyNTI5Ij4xNCDguJ4u4LiELiAyMDI2ICAxMjoxMTwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iNTEwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjUwIiByeD0iOCIgZmlsbD0iI2QxZmFlNSIvPgogIDx0ZXh0IHg9IjI0MCIgeT0iNTQxIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiMwNjVmNDYiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuKckyAg4Liq4Liz4LmA4Lij4LmH4LiIIC8gU1VDQ0VTUzwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iNTgwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIyNDAiIHk9IjYxNSIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiNhZGI1YmQiIHRleHQtYW5jaG9yPSJtaWRkbGUiPlRoZSBPd25lciBDbGFzcyBQYXltZW50PC90ZXh0Pgo8L3N2Zz4=",
-  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9IiNmOGY5ZmEiIHJ4PSIwIi8+CiAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI5MCIgZmlsbD0iIzFiNDMzMiIvPgogIDx0ZXh0IHg9IjI0MCIgeT0iMzgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE4IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC5g+C4muC4ouC4t+C4meC4ouC4seC4meC4geC4suC4o+C5guC4reC4meC5gOC4h+C4tOC4mTwvdGV4dD4KICA8dGV4dCB4PSIyNDAiIHk9IjY4IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjg1KSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VHJhbnNmZXIgUmVjZWlwdDwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMTEwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMTU1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4LiY4LiZ4Liy4LiE4Liy4LijIC8gQmFuazwvdGV4dD4KICA8dGV4dCB4PSIzMCIgeT0iMTgwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNyIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiMyMTI1MjkiPuC4mOC4meC4suC4hOC4suC4o+C4geC4o+C4uOC4h+C5gOC4l+C4njwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMjAwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMjQwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4LiI4Liz4LiZ4Lin4LiZ4LmA4LiH4Li04LiZIC8gQW1vdW50PC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSIyOTUiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjUyIiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iIzFiNDMzMiI+MTUwPC90ZXh0PgogIDx0ZXh0IHg9IjIwMCIgeT0iMjk1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMiIgZmlsbD0iIzFiNDMzMiI+IOC4muC4suC4lzwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMzE1IiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMzU1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4Lic4Li54LmJ4Lij4Lix4LiaIC8gUmVjaXBpZW50PC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSIzODAiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iIzIxMjUyOSI+4Liq4Li44Lie4Lix4LiV4Lij4LiyIOC4q+C4h+C4qeC5jOC4p+C4tOC5gOC4qOC4qTwvdGV4dD4KICA8dGV4dCB4PSIzMCIgeT0iNDA1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzQ5NTA1NyI+MDE0LTctMTI4MjY4PC90ZXh0PgogIDxyZWN0IHg9IjIwIiB5PSI0MjUiIHdpZHRoPSI0NDAiIGhlaWdodD0iMSIgZmlsbD0iI2RlZTJlNiIvPgogIDx0ZXh0IHg9IjMwIiB5PSI0NjMiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNmM3NTdkIj7guKfguLHguJnguJfguLXguYggLyBEYXRlPC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSI0ODgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmaWxsPSIjMjEyNTI5Ij4xMiDguJ4u4LiELiAyMDI2ICAwOTozMDwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iNTEwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjUwIiByeD0iOCIgZmlsbD0iI2QxZmFlNSIvPgogIDx0ZXh0IHg9IjI0MCIgeT0iNTQxIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNiIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiMwNjVmNDYiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuKckyAg4Liq4Liz4LmA4Lij4LmH4LiIIC8gU1VDQ0VTUzwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iNTgwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIyNDAiIHk9IjYxNSIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTIiIGZpbGw9IiNhZGI1YmQiIHRleHQtYW5jaG9yPSJtaWRkbGUiPlRoZSBPd25lciBDbGFzcyBQYXltZW50PC90ZXh0Pgo8L3N2Zz4=",
-  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9IiNmOGY5ZmEiIHJ4PSIwIi8+CiAgPHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI5MCIgZmlsbD0iIzRhMTk0MiIvPgogIDx0ZXh0IHg9IjI0MCIgeT0iMzgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE4IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPuC5g+C4muC4ouC4t+C4meC4ouC4seC4meC4geC4suC4o+C5guC4reC4meC5gOC4h+C4tOC4mTwvdGV4dD4KICA8dGV4dCB4PSIyNDAiIHk9IjY4IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjg1KSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VHJhbnNmZXIgUmVjZWlwdDwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMTEwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMTU1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4LiY4LiZ4Liy4LiE4Liy4LijIC8gQmFuazwvdGV4dD4KICA8dGV4dCB4PSIzMCIgeT0iMTgwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNyIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiMyMTI1MjkiPuC4mOC4meC4suC4hOC4suC4o+C4geC4o+C4uOC4h+C5gOC4l+C4njwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMjAwIiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMjQwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4LiI4Liz4LiZ4Lin4LiZ4LmA4LiH4Li04LiZIC8gQW1vdW50PC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSIyOTUiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjUyIiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iIzRhMTk0MiI+NjAwPC90ZXh0PgogIDx0ZXh0IHg9IjIwMCIgeT0iMjk1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyMiIgZmlsbD0iIzRhMTk0MiI+IOC4muC4suC4lzwvdGV4dD4KICA8cmVjdCB4PSIyMCIgeT0iMzE1IiB3aWR0aD0iNDQwIiBoZWlnaHQ9IjEiIGZpbGw9IiNkZWUyZTYiLz4KICA8dGV4dCB4PSIzMCIgeT0iMzU1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCI+4Lic4Li54LmJ4Lij4Lix4LiaIC8gUmVjaXBpZW50PC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSIzODAiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iIzIxMjUyOSI+4Liq4Li44Lie4Lix4LiV4Lij4LiyIOC4q+C4h+C4qeC5jOC4p+C4tOC5gOC4qOC4qTwvdGV4dD4KICA8dGV4dCB4PSIzMCIgeT0iNDA1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNSIgZmlsbD0iIzQ5NTA1NyI+MDE0LTctMTI4MjY4PC90ZXh0PgogIDxyZWN0IHg9IjIwIiB5PSI0MjUiIHdpZHRoPSI0NDAiIGhlaWdodD0iMSIgZmlsbD0iI2RlZTJlNiIvPgogIDx0ZXh0IHg9IjMwIiB5PSI0NjMiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE0IiBmaWxsPSIjNmM3NTdkIj7guKfguLHguJnguJfguLXguYggLyBEYXRlPC90ZXh0PgogIDx0ZXh0IHg9IjMwIiB5PSI0ODgiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmaWxsPSIjMjEyNTI5Ij4xIOC4gS7guJ4uIDIwMjYgIDE0OjU1PC90ZXh0PgogIDxyZWN0IHg9IjIwIiB5PSI1MTAiIHdpZHRoPSI0NDAiIGhlaWdodD0iNTAiIHJ4PSI4IiBmaWxsPSIjZDFmYWU1Ii8+CiAgPHRleHQgeD0iMjQwIiB5PSI1NDEiIGZvbnQtZmFtaWx5PSJBcmlhbCxzYW5zLXNlcmlmIiBmb250LXNpemU9IjE2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0iIzA2NWY0NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+4pyTICDguKrguLPguYDguKPguYfguIggLyBTVUNDRVNTPC90ZXh0PgogIDxyZWN0IHg9IjIwIiB5PSI1ODAiIHdpZHRoPSI0NDAiIGhlaWdodD0iMSIgZmlsbD0iI2RlZTJlNiIvPgogIDx0ZXh0IHg9IjI0MCIgeT0iNjE1IiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxMiIgZmlsbD0iI2FkYjViZCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+VGhlIE93bmVyIENsYXNzIFBheW1lbnQ8L3RleHQ+Cjwvc3ZnPg==",
-];
-
-/* ---- payments: ครบทุกสถานะ + มี slip_url จริง ---- */
-const initialPayments = [
-  // OW0025 (admin) — Member active อีก 33 วัน
-  { id: "PAY01", uid: "OW0025", passName: "Member", status: "Approved",
-    createdAt: NOW - 10 * D, approved_at: NOW - 10 * D, approved_by: "system",
-    expired_date: NOW + 33 * D, used: false, slip_url: SLIP_IMGS[0], rejected_note: null },
-  // OW0025 — One ที่เคย Rejected
-  { id: "PAY00", uid: "OW0025", passName: "One", status: "Rejected",
-    createdAt: NOW - 40 * D, approved_at: null, approved_by: null,
-    expired_date: null, used: false, slip_url: SLIP_IMGS[1], rejected_note: "สลิปไม่ชัด ยอดเงินไม่ตรง" },
-  // OW0025 — Member ที่หมดอายุไปแล้ว
-  { id: "PAY0X", uid: "OW0025", passName: "Member", status: "Approved",
-    createdAt: NOW - 120 * D, approved_at: NOW - 120 * D, approved_by: "system",
-    expired_date: NOW - 30 * D, used: false, slip_url: SLIP_IMGS[2], rejected_note: null },
-
-  // OW0031 (editor) — Member active 60 วัน
-  { id: "PAY_E1", uid: "OW0031", passName: "Member", status: "Approved",
-    createdAt: NOW - 30 * D, approved_at: NOW - 30 * D, approved_by: "OW0025",
-    expired_date: NOW + 60 * D, used: false, slip_url: SLIP_IMGS[0], rejected_note: null },
-
-  // OW0044 (approver) — Member active ใกล้หมด 5 วัน
-  { id: "PAY_A1", uid: "OW0044", passName: "Member", status: "Approved",
-    createdAt: NOW - 85 * D, approved_at: NOW - 85 * D, approved_by: "OW0025",
-    expired_date: NOW + 5 * D, used: false, slip_url: SLIP_IMGS[1], rejected_note: null },
-
-  // OW0059 (guest) — One approved ยังไม่ใช้
-  { id: "PAY02", uid: "OW0059", passName: "One", status: "Approved",
-    createdAt: NOW - 2 * D, approved_at: NOW - 1 * D, approved_by: "OW0025",
-    expired_date: null, used: false, slip_url: SLIP_IMGS[2], rejected_note: null },
-
-  // OW0071 (scanner) — Member Pending รออนุมัติ
-  { id: "PAY03", uid: "OW0071", passName: "Member", status: "Pending",
-    createdAt: NOW - 3 * H, approved_at: null, approved_by: null,
-    expired_date: null, used: false, slip_url: SLIP_IMGS[0], rejected_note: null },
-  // OW0071 — Member เก่าที่หมดอายุ
-  { id: "PAY_S2", uid: "OW0071", passName: "Member", status: "Approved",
-    createdAt: NOW - 100 * D, approved_at: NOW - 100 * D, approved_by: "system",
-    expired_date: NOW - 10 * D, used: false, slip_url: SLIP_IMGS[1], rejected_note: null },
-
-  // OW0088 (newbie) — ยังไม่มี payment ใดๆ → ไม่ต้องใส่
-];
-
-/* ---- bookings: ครบทุก status ---- */
-const initialBookings = [
-  // OW0025: จอง C_SOON Onsite (Approved - พร้อมเข้าเรียน)
-  { id: "BK01", uid: "OW0025", classId: "C_SOON", sessionType: "Onsite", paymentId: "PAY01",
-    createdAt: NOW - 1 * H, bookingStatus: "Approved" },
-  // OW0025: คลาสเก่า Used
-  { id: "BK02", uid: "OW0025", classId: "C_PAST2", sessionType: "Online", paymentId: "PAY0X",
-    createdAt: NOW - 7 * D - 2 * H, bookingStatus: "Used",
-    checkedInAt: NOW - 7 * D + 30 * 60 * 1000, checkinVia: "zoom" },
-  // OW0025: คลาสที่ไม่ได้ไป Expired
-  { id: "BK02b", uid: "OW0025", classId: "C_PAST1", sessionType: "Onsite", paymentId: "PAY01",
-    createdAt: NOW - 4 * D, bookingStatus: "Expired" },
-
-  // OW0031: จอง C_SOON Online (Approved)
-  { id: "BK_E1", uid: "OW0031", classId: "C_SOON", sessionType: "Online", paymentId: "PAY_E1",
-    createdAt: NOW - 5 * H, bookingStatus: "Approved" },
-  // OW0031: คลาสเก่า Used
-  { id: "BK_E2", uid: "OW0031", classId: "C_PAST1", sessionType: "Online", paymentId: "PAY_E1",
-    createdAt: NOW - 3 * D - 1 * H, bookingStatus: "Used",
-    checkedInAt: NOW - 3 * D + 10 * 60 * 1000, checkinVia: "zoom" },
-
-  // OW0044: จอง C_2 Onsite (Approved - ใกล้หมดอายุบัตร)
-  { id: "BK_A1", uid: "OW0044", classId: "C_2", sessionType: "Onsite", paymentId: "PAY_A1",
-    createdAt: NOW - 6 * H, bookingStatus: "Approved" },
-  // OW0044: คลาสเก่า Used  
-  { id: "BK_A2", uid: "OW0044", classId: "C_PAST2", sessionType: "Online", paymentId: "PAY_A1",
-    createdAt: NOW - 7 * D - 3 * H, bookingStatus: "Used",
-    checkedInAt: NOW - 7 * D + 5 * 60 * 1000, checkinVia: "scan" },
-
-  // OW0059: จอง C_SOON Online ด้วยบัตร One (Used แล้ว)
-  { id: "BK05", uid: "OW0059", classId: "C_SOON", sessionType: "Online", paymentId: "PAY02",
-    createdAt: NOW - 4 * H, bookingStatus: "Used",
-    checkedInAt: NOW - 30 * 60 * 1000, checkinVia: "zoom" },
-
-  // OW0071: จอง C_SOON Online แต่ยัง Pending (สลิปรออนุมัติ)
-  { id: "BK04", uid: "OW0071", classId: "C_SOON", sessionType: "Online", paymentId: "PAY03",
-    createdAt: NOW - 2 * H, bookingStatus: "Pending" },
-  // OW0071: คลาสเก่า Expired (ไม่ได้ไป)
-  { id: "BK_S2", uid: "OW0071", classId: "C_PAST1", sessionType: "Onsite", paymentId: "PAY_S2",
-    createdAt: NOW - 4 * D, bookingStatus: "Expired" },
-
-  // OW0088 (newbie): ไม่มี booking ใดๆ
-];
 
 /* ---------- HELPERS ---------- */
 
@@ -406,6 +228,35 @@ function Badge({ cls, icon: Icon, text, spin, plain }) {
   );
 }
 
+// สรุปจำนวนสมาชิก: ทั้งหมด / ยังไม่หมดอายุ / หมดอายุแล้ว (ใช้ในหน้า Member และ Member Admin)
+function MemberStats({ users, payments }) {
+  const stats = useMemo(() => {
+    let active = 0;
+    users.forEach((u) => {
+      const lp = payments.filter((p) => p.uid === u.uid && p.status === "Approved" && p.passName === "Member")
+        .sort((a, b) => (b.expired_date || 0) - (a.expired_date || 0))[0];
+      if (lp?.expired_date && lp.expired_date > NOW) active++;
+    });
+    return { total: users.length, active, expired: users.length - active };
+  }, [users, payments]);
+  return (
+    <div className="grid grid-cols-3 gap-2 mb-2">
+      <div className="bg-white rounded-xl py-2.5 text-center shadow-lg shadow-black/15 border border-slate-100">
+        <div className="text-lg font-bold text-slate-800">{stats.total}</div>
+        <div className="text-[10px] text-slate-400">ทั้งหมด</div>
+      </div>
+      <div className="bg-white rounded-xl py-2.5 text-center shadow-lg shadow-black/15 border border-slate-100">
+        <div className="text-lg font-bold text-emerald-600">{stats.active}</div>
+        <div className="text-[10px] text-slate-400">ยังไม่หมดอายุ</div>
+      </div>
+      <div className="bg-white rounded-xl py-2.5 text-center shadow-lg shadow-black/15 border border-slate-100">
+        <div className="text-lg font-bold text-rose-500">{stats.expired}</div>
+        <div className="text-[10px] text-slate-400">หมดอายุ/ไม่มีบัตร</div>
+      </div>
+    </div>
+  );
+}
+
 // item 2 — โปรไฟล์: รหัส OW + status/role (guest ซ่อน role) + เมนูแฮมเบอร์เกอร์ตรึงด้านขวา
 function ProfileStrip({ user, membership, onMenu }) {
   return (
@@ -414,7 +265,7 @@ function ProfileStrip({ user, membership, onMenu }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-slate-800 truncate">{user.display_name}</span>
-          <span className="text-xs font-mono text-slate-400">[{user.uid}]</span>
+          <span className="text-xs font-mono text-slate-400">[{user.code}]</span>
         </div>
         <div className="text-[11px] mt-0.5 truncate">
           <span className="text-emerald-600 font-medium">{user.memberStatus}</span>
@@ -449,7 +300,7 @@ function DrawerItem({ icon: Icon, label, onClick, danger, active }) {
   );
 }
 
-function Drawer({ drawer, setDrawer, user, view, go, canBook, adminExpand, setAdminExpand, setUsers, setAuthUid }) {
+function Drawer({ drawer, setDrawer, user, view, go, canBook, adminExpand, setAdminExpand }) {
   if (!drawer) return null;
   const adminItems = ADMIN_MENU.filter((m) => m.roles.includes(user.role));
   return (
@@ -462,7 +313,7 @@ function Drawer({ drawer, setDrawer, user, view, go, canBook, adminExpand, setAd
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-slate-800 text-sm truncate">{user.display_name}</div>
             <div className="text-xs text-slate-400">
-              [{user.uid}]{user.role !== "guest" && ` · ${ROLE_LABELS[user.role]}`}
+              [{user.code}]{user.role !== "guest" && ` · ${ROLE_LABELS[user.role]}`}
             </div>
           </div>
           <button onClick={() => setDrawer(false)} className="w-10 h-10 grid place-items-center rounded-full hover:bg-slate-100">
@@ -495,21 +346,32 @@ function Drawer({ drawer, setDrawer, user, view, go, canBook, adminExpand, setAd
             </>
           )}
           <div className="my-2 border-t border-slate-100" />
-          <DrawerItem icon={LogOut} label="ออกจากระบบ" danger onClick={() => { setAuthUid(null); setDrawer(false); }} />
-        </div>
-        <div className="p-3 border-t border-dashed border-slate-200">
-          <div className="text-[11px] text-slate-400 mb-1.5 flex items-center gap-1">
-            <ShieldCheck size={12} /> โหมดสาธิต — สลับ role
-          </div>
-          <div className="flex gap-1.5 flex-wrap">
-            {Object.keys(ROLE_LABELS).map((r) => (
-              <button key={r} onClick={() => setUsers((prev) => prev.map((u) => u.uid === user.uid ? { ...u, role: r } : u))}
-                className={`text-xs px-2.5 py-1 rounded-lg border ${user.role === r ? "text-white border-transparent" : "bg-white text-slate-500 border-slate-200"}`}
-                style={user.role === r ? { background: BRAND } : {}}>{ROLE_LABELS[r]}</button>
-            ))}
-          </div>
+          <DrawerItem icon={LogOut} label="ออกจากระบบ" danger onClick={() => { auth.signOut(); setDrawer(false); }} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// คลิกรูปไหนในแอปก็ได้ (ยกเว้นรูปที่ใช้กดอัปโหลดไฟล์ ซึ่งอยู่ใน <label>) เพื่อดูภาพขยาย
+function Lightbox() {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    const handler = (e) => {
+      const img = e.target.closest("img");
+      if (!img || !img.src || img.closest("label")) return;
+      setSrc(img.src);
+    };
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, []);
+  if (!src) return null;
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={() => setSrc(null)}>
+      <button onClick={() => setSrc(null)} className="absolute top-4 right-4 w-11 h-11 grid place-items-center rounded-full bg-white/10 text-white">
+        <X size={22} />
+      </button>
+      <img src={src} alt="" className="max-w-full max-h-full object-contain rounded-lg" onClick={(e) => e.stopPropagation()} />
     </div>
   );
 }
@@ -518,10 +380,15 @@ function Shell({ children }) {
   const { toast, drawerProps } = React.useContext(AppCtx);
   return (
     <div className="min-h-screen bg-slate-50 flex justify-center">
-      <style>{`@keyframes slidein{from{transform:translateX(100%)}to{transform:translateX(0)}}`}</style>
+      <style>{`
+        @keyframes slidein{from{transform:translateX(100%)}to{transform:translateX(0)}}
+        img { cursor: zoom-in; }
+        label img { cursor: pointer; }
+      `}</style>
       <div className="w-full max-w-[440px] bg-slate-50 min-h-screen relative pb-10">
         {children}
         <Drawer {...drawerProps} />
+        <Lightbox />
         {toast && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-full shadow-lg flex items-center gap-2">
             <CheckCircle2 size={16} className="text-emerald-400" /> {toast}
@@ -605,13 +472,34 @@ function ScanCamera({ onDetect, onClose }) {
   );
 }
 
-function App() {
-  const [users, setUsers] = useState(initialUsers);
-  const [payments, setPayments] = useState(initialPayments);
-  const [bookings, setBookings] = useState(initialBookings);
-  const [classes, setClasses] = useState(initialClasses);
+// แปลง users doc ดิบจาก Firestore → shape ที่ UI ใช้ (code = รหัสสมาชิกที่โชว์จริง, uid = Firebase Auth uid สำหรับ match ข้อมูล)
+function mapUserDoc(raw) {
+  return {
+    uid: raw.id,
+    code: (raw.line || "").trim(),
+    display_name: raw.display_name || "",
+    email: raw.email || "",
+    phone_number: raw.phone_number || "",
+    photo_url: raw.photo_url || "",
+    role: (raw.role || "guest").toLowerCase(),
+    memberStatus: raw.memberStatus || "Guest",
+    age: raw.age,
+    memberExpire: tsToMs(raw.memberExpire),
+    memberStart: tsToMs(raw.memberStart),
+    uplineList: raw.uplineList || "",
+  };
+}
 
-  const [authUid, setAuthUid] = useState(null);
+function App() {
+  const [fbUser, setFbUser] = useState(undefined);   // undefined = กำลังเช็ค, null = ยังไม่ login, object = login แล้ว
+  const [myProfileRaw, setMyProfileRaw] = useState(null);
+  const [usersRaw, setUsersRaw] = useState([]);
+  const [passesList, setPassesList] = useState([]);
+  const [paymentsRaw, setPaymentsRaw] = useState([]);
+  const [classesRaw, setClassesRaw] = useState([]);
+  const [sessionsRaw, setSessionsRaw] = useState([]);
+  const [bookingsRaw, setBookingsRaw] = useState([]);
+
   const [view, setView] = useState("home");
   const [drawer, setDrawer] = useState(false);
   const [adminExpand, setAdminExpand] = useState(false);
@@ -622,17 +510,151 @@ function App() {
   const [attnDetail, setAttnDetail] = useState(null);     // item 5: {classId, session, kind}
   const [scanOpen, setScanOpen] = useState(false);        // item 6 — เปิดกล้องสแกน QR จริง
   const [courseEdit, setCourseEdit] = useState(null);     // 'new' | classId | null
-  const [slipPreview, setSlipPreview] = useState(null);    // data URL ของสลิปที่อัปโหลดจริง
+  const [slipPreview, setSlipPreview] = useState(null);   // download URL ของสลิปที่อัปโหลดขึ้น Storage แล้ว
+  const [slipUploading, setSlipUploading] = useState(false);
 
-  const user = users.find((u) => u.uid === authUid);
+  // ---- Firebase Auth state ----
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged((u) => setFbUser(u));
+    return unsub;
+  }, []);
+
+  // ---- โปรไฟล์ของตัวเอง (users/{uid}) — อ่านแยกจาก collection เต็ม เพราะ rule มักอนุญาตให้อ่านเอกสารตัวเองได้แน่นอนกว่า ----
+  useEffect(() => {
+    if (!fbUser) { setMyProfileRaw(null); return; }
+    const unsub = db.collection("users").doc(fbUser.uid).onSnapshot(
+      (doc) => setMyProfileRaw(doc.exists ? { id: doc.id, ...doc.data() } : null),
+      (err) => console.error("users/me", err)
+    );
+    return unsub;
+  }, [fbUser]);
+
+  // ---- users ทั้งหมด (สำหรับหน้า Member / Member Admin — ต้องเป็น role ที่มีสิทธิ์อ่านตาม Firestore rules) ----
+  useEffect(() => {
+    if (!fbUser) { setUsersRaw([]); return; }
+    const unsub = db.collection("users").onSnapshot(
+      (snap) => setUsersRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("users", err)
+    );
+    return unsub;
+  }, [fbUser]);
+
+  // ---- pass (ราคาบัตร) ----
+  useEffect(() => {
+    if (!fbUser) { setPassesList([]); return; }
+    const unsub = db.collection("pass").onSnapshot(
+      (snap) => setPassesList(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("pass", err)
+    );
+    return unsub;
+  }, [fbUser]);
+
+  // ---- payments ----
+  useEffect(() => {
+    if (!fbUser) { setPaymentsRaw([]); return; }
+    const unsub = db.collection("payments").onSnapshot(
+      (snap) => setPaymentsRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("payments", err)
+    );
+    return unsub;
+  }, [fbUser]);
+
+  // ---- classes + sessions ----
+  useEffect(() => {
+    if (!fbUser) { setClassesRaw([]); setSessionsRaw([]); return; }
+    const unsub1 = db.collection("classes").onSnapshot(
+      (snap) => setClassesRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("classes", err)
+    );
+    const unsub2 = db.collection("sessions").onSnapshot(
+      (snap) => setSessionsRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("sessions", err)
+    );
+    return () => { unsub1(); unsub2(); };
+  }, [fbUser]);
+
+  // ---- bookings ----
+  useEffect(() => {
+    if (!fbUser) { setBookingsRaw([]); return; }
+    const unsub = db.collection("bookings").onSnapshot(
+      (snap) => setBookingsRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.error("bookings", err)
+    );
+    return unsub;
+  }, [fbUser]);
+
+  // ---- แปลงข้อมูลดิบ → shape ที่ UI ใช้ ----
+  const user = useMemo(() => (myProfileRaw ? mapUserDoc(myProfileRaw) : null), [myProfileRaw]);
+  const users = useMemo(() => usersRaw.map(mapUserDoc), [usersRaw]);
+
+  const PASSES = useMemo(() => Object.fromEntries(passesList.map((p) => [p.name, {
+    id: p.id, name: p.name, price: p.price, duration_days: p.duration_days,
+    pass_description: p.pass_description, pass_image: p.pass_image, active: p.Is_active,
+  }])), [passesList]);
+  const passesById = useMemo(() => Object.fromEntries(passesList.map((p) => [p.id, p])), [passesList]);
+
+  const sessionsById = useMemo(() => Object.fromEntries(sessionsRaw.map((s) => [s.id, s])), [sessionsRaw]);
+
+  const classes = useMemo(() => classesRaw.map((c) => {
+    const mine = sessionsRaw.filter((s) => s.class_ref?.id === c.id);
+    const on = mine.find((s) => s.classType === "Onsite");
+    const off = mine.find((s) => s.classType === "Online");
+    return {
+      id: c.id, className: c.className, description: c.description, instructorName: c.instructorName,
+      location: c.location, meeting_url: c.meeting_url, class_url: c.class_url,
+      active: c.active, is_free_booking: c.is_free_booking,
+      startTime: tsToMs(c.startTime), endTime: tsToMs(c.endTime),
+      sessions: {
+        Onsite: { capacity: on?.capacity ?? 0, booked: on?.booked ?? 0, sessionId: on?.id ?? null },
+        Online: { capacity: off?.capacity ?? 0, booked: off?.booked ?? 0, sessionId: off?.id ?? null },
+      },
+    };
+  }), [classesRaw, sessionsRaw]);
+
+  const payments = useMemo(() => paymentsRaw.map((p) => ({
+    id: p.id,
+    uid: p.uid || p.user_ref?.id,
+    passName: passesById[p.pass_ref?.id]?.name,
+    status: p.status,
+    createdAt: tsToMs(p.createdAt),
+    approved_at: tsToMs(p.approved_at),
+    approved_by: p.approved_by,
+    expired_date: tsToMs(p.expired_date),
+    used: p.used ?? false,
+    slip_url: p.slip_url,
+    rejected_note: p.rejected_note ?? null,
+  })), [paymentsRaw, passesById]);
+
+  const bookings = useMemo(() => bookingsRaw.map((b) => {
+    const sess = sessionsById[b.session_ref?.id];
+    return {
+      id: b.id,
+      uid: b.users_ref?.id,
+      classId: b.classes_ref?.id,
+      sessionId: b.session_ref?.id,
+      sessionType: sess?.classType,
+      paymentId: b.payments_ref?.id,
+      createdAt: tsToMs(b.createdAt),
+      bookingStatus: b.statusBooking,
+      checkedInAt: tsToMs(b.checkedin_at),
+      checkedInBy: b.checkedin_by,
+      checkinVia: sess?.classType === "Online" ? "zoom" : "scan",
+    };
+  }), [bookingsRaw, sessionsById]);
+
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
   const go = (v) => { setView(v); setDrawer(false); setBookSel(null); setAttnDetail(null); setCourseEdit(null); setSlipPreview(null); };
-  const handleSlipFile = (e) => {
+  const handleSlipFile = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setSlipPreview(reader.result);
-    reader.readAsDataURL(file);
+    if (!file || !user) return;
+    setSlipUploading(true);
+    try {
+      const url = await uploadFile(file, `users/${user.uid}/uploads/${Date.now()}_${file.name}`);
+      setSlipPreview(url);
+    } catch (err) {
+      showToast("อัปโหลดสลิปไม่สำเร็จ");
+    }
+    setSlipUploading(false);
   };
 
   const membership = useMemo(() => {
@@ -654,7 +676,9 @@ function App() {
 
   const canBook = membership.active || membership.pending;
 
-  if (!authUid) return <Login users={users} onLogin={setAuthUid} />;
+  if (fbUser === undefined) return <div className="min-h-screen grid place-items-center text-slate-400 text-sm">กำลังโหลด…</div>;
+  if (!fbUser) return <Login />;
+  if (!user) return <div className="min-h-screen grid place-items-center text-slate-400 text-sm">กำลังโหลดข้อมูลผู้ใช้…</div>;
 
   const nearest = classes.filter((c) => c.active && c.endTime > NOW).sort((a, b) => a.startTime - b.startTime)[0];
 
@@ -664,49 +688,69 @@ function App() {
   const upcomingMine = myBookings.filter((b) => b.cls && b.cls.endTime > NOW).sort((a, b) => a.cls.startTime - b.cls.startTime);
   const latestBooking = upcomingMine[0] || myBookings.sort((a, b) => (b.cls?.startTime || 0) - (a.cls?.startTime || 0))[0];
 
-  /* ---- ACTIONS ---- */
-  const buyPass = (passName) => {
-    const newPay = { id: "PAY" + Math.random().toString(36).slice(2, 7), uid: user.uid, passName,
-      status: "Pending", createdAt: Date.now(), approved_at: null, approved_by: null,
-      expired_date: null, used: false, slip_url: slipPreview || "slip-uploaded-mock", rejected_note: null };
-    setPayments((p) => [...p, newPay]);
+  /* ---- ACTIONS (เขียนขึ้น Firestore จริง) ---- */
+  const buyPass = async (passName) => {
+    const pass = PASSES[passName];
+    if (!pass) return;
+    await db.collection("payments").add({
+      uid: user.uid,
+      user_ref: db.doc(`users/${user.uid}`),
+      pass_ref: db.doc(`pass/${pass.id}`),
+      status: "Pending",
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      approved_at: null, approved_by: null, expired_date: null,
+      slip_url: slipPreview || null, rejected_note: null,
+    });
     showToast(`ส่งสลิปบัตร ${passName} แล้ว · รออนุมัติ`);
     go("payments");
   };
-  const approvePayment = (payId) => {
-    let target;
-    setPayments((prev) => prev.map((p) => {
-      if (p.id !== payId) return p;
-      target = p;
-      const pass = PASSES[p.passName];
-      const expired_date = pass.duration_days > 0 ? Date.now() + pass.duration_days * D : null;
-      return { ...p, status: "Approved", approved_at: Date.now(), approved_by: user.uid, expired_date };
-    }));
-    if (target) setUsers((prev) => prev.map((u) => u.uid === target.uid ? { ...u, memberStatus: "Member" } : u));
+  const approvePayment = async (payId) => {
+    const p = payments.find((x) => x.id === payId);
+    if (!p) return;
+    const pass = PASSES[p.passName];
+    const expired_date = pass?.duration_days > 0 ? Date.now() + pass.duration_days * D : null;
+    await db.collection("payments").doc(payId).update({
+      status: "Approved",
+      approved_at: firebase.firestore.FieldValue.serverTimestamp(),
+      approved_by: user.uid,
+      expired_date: expired_date ? firebase.firestore.Timestamp.fromMillis(expired_date) : null,
+    });
+    await db.collection("users").doc(p.uid).update({ memberStatus: "Member" });
     showToast("อนุมัติสลิปแล้ว");
   };
-  const confirmReject = () => {
-    setPayments((prev) => prev.map((p) => p.id === rejecting
-      ? { ...p, status: "Rejected", rejected_note: rejectNote.trim() || "ไม่ระบุเหตุผล" } : p));
+  const confirmReject = async () => {
+    await db.collection("payments").doc(rejecting).update({
+      status: "Rejected", rejected_note: rejectNote.trim() || "ไม่ระบุเหตุผล",
+    });
     setRejecting(null); setRejectNote("");
     showToast("ปฏิเสธสลิปแล้ว");
   };
-  const bookClass = (cls, sessionType) => {
+  const bookClass = async (cls, sessionType) => {
     if (!canBook) { go("payments"); return; }
-    const newBk = { id: "BK" + Math.random().toString(36).slice(2, 7), uid: user.uid, classId: cls.id,
-      sessionType, paymentId: membership.payment?.id, createdAt: Date.now(),
-      bookingStatus: membership.active ? "Approved" : "Pending" };
-    setBookings((b) => [...b, newBk]);
-    setClasses((prev) => prev.map((c) => c.id === cls.id
-      ? { ...c, sessions: { ...c.sessions, [sessionType]: { ...c.sessions[sessionType], booked: c.sessions[sessionType].booked + 1 } } } : c));
+    const sessionId = cls.sessions[sessionType].sessionId;
+    if (!sessionId) { showToast("ไม่พบ session นี้ในระบบ"); return; }
+    await db.collection("bookings").add({
+      classes_ref: db.doc(`classes/${cls.id}`),
+      session_ref: db.doc(`sessions/${sessionId}`),
+      users_ref: db.doc(`users/${user.uid}`),
+      payments_ref: membership.payment ? db.doc(`payments/${membership.payment.id}`) : null,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      statusBooking: membership.active ? "Approved" : "Pending",
+    });
+    await db.collection("sessions").doc(sessionId).update({
+      booked: firebase.firestore.FieldValue.increment(1),
+    });
     if (membership.type === "One" && membership.payment)
-      setPayments((prev) => prev.map((p) => p.id === membership.payment.id ? { ...p, used: true } : p));
+      await db.collection("payments").doc(membership.payment.id).update({ used: true });
     showToast(`จองคลาส (${sessionType}) สำเร็จ`);
     go("mybookings");
   };
-  const checkIn = (bookingId, via) => {
-    setBookings((prev) => prev.map((b) => b.id === bookingId
-      ? { ...b, bookingStatus: "Used", checkedInAt: Date.now(), checkinVia: via } : b));
+  const checkIn = async (bookingId) => {
+    await db.collection("bookings").doc(bookingId).update({
+      statusBooking: "Used",
+      checkedin_at: firebase.firestore.FieldValue.serverTimestamp(),
+      checkedin_by: user.uid,
+    });
   };
   // สถานะที่แสดงจริง: เช็คอินแล้ว > (หมดเวลาเฉพาะเมื่อคลาสจบ) > อนุมัติแล้ว=พร้อมเข้าเรียน > รออนุมัติ
   const effStatus = (b) => {
@@ -717,41 +761,44 @@ function App() {
     if (pay?.status === "Approved" || b.bookingStatus === "Approved") return "Approved";
     return "Pending";
   };
-  const saveClass = (data, id) => {
+  const saveClass = async (data, id) => {
+    const payload = {
+      className: data.className, instructorName: data.instructorName, description: data.description,
+      active: data.active, is_free_booking: data.isFree,
+      location: data.location, meeting_url: data.meeting_url,
+      startTime: firebase.firestore.Timestamp.fromMillis(data.startTime),
+      endTime: firebase.firestore.Timestamp.fromMillis(data.endTime),
+    };
+    if (data.class_url) payload.class_url = data.class_url;
+    let classId = id;
     if (id) {
-      setClasses((prev) => prev.map((c) => c.id === id ? {
-        ...c, className: data.className, instructorName: data.instructorName, description: data.description,
-        active: data.active, is_free_booking: data.isFree, class_url: data.class_url || c.class_url,
-        location: data.location, meeting_url: data.meeting_url, startTime: data.startTime, endTime: data.endTime,
-        sessions: {
-          Onsite: { ...c.sessions.Onsite, capacity: data.capOnsite },
-          Online: { ...c.sessions.Online, capacity: data.capOnline },
-        },
-      } : c));
-      showToast("บันทึกการแก้ไขคลาสแล้ว");
+      await db.collection("classes").doc(id).update(payload);
     } else {
-      const nc = { id: "C_" + Math.random().toString(36).slice(2, 7),
-        className: data.className, instructorName: data.instructorName, description: data.description,
-        active: data.active, is_free_booking: data.isFree,
-        class_url: data.class_url || "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0ODAiIGhlaWdodD0iNjQwIiB2aWV3Qm94PSIwIDAgNDgwIDY0MCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMxYTNjNWUiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjMGQyMTM3Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJvdmVybGF5IiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMCkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI3MCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC4yKSIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9InJnYmEoMCwwLDAsMC43KSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjYmcpIi8+CiAgPGcgZmlsbD0ibm9uZSIgc3Ryb2tlPSJyZ2JhKDI1NSwyNTUsMjU1LDAuNykiIHN0cm9rZS13aWR0aD0iNiI+PHJlY3QgeD0iMTMwIiB5PSIxNzAiIHdpZHRoPSIyMjAiIGhlaWdodD0iMTYwIiByeD0iMTIiIGZpbGw9InJnYmEoMjU1LDI1NSwyNTUsMC4xNSkiLz48bGluZSB4MT0iMTYwIiB5MT0iMjEwIiB4Mj0iMzIwIiB5Mj0iMjEwIi8+PGxpbmUgeDE9IjE2MCIgeTE9IjI0MCIgeDI9IjMyMCIgeTI9IjI0MCIvPjxsaW5lIHgxPSIxNjAiIHkxPSIyNzAiIHgyPSIyNjAiIHkyPSIyNzAiLz48Y2lyY2xlIGN4PSIzMDAiIGN5PSIzMDAiIHI9IjMwIiBmaWxsPSJyZ2JhKDEwMCwyNTUsMTUwLDAuNSkiLz48dGV4dCB4PSIyOTMiIHk9IjMwOCIgZm9udC1zaXplPSIyMiIgZmlsbD0id2hpdGUiPuKckzwvdGV4dD48L2c+CiAgPHJlY3Qgd2lkdGg9IjQ4MCIgaGVpZ2h0PSI2NDAiIGZpbGw9InVybCgjb3ZlcmxheSkiLz4KICA8cmVjdCB4PSIwIiB5PSI0ODAiIHdpZHRoPSI0ODAiIGhlaWdodD0iMTYwIiBmaWxsPSJyZ2JhKDAsMCwwLDAuNSkiLz4KICA8dGV4dCB4PSIzMCIgeT0iNTMwIiBmb250LWZhbWlseT0iQXJpYWwsc2Fucy1zZXJpZiIgZm9udC1zaXplPSIyOCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IndoaXRlIj7guYDguJfguITguJnguLTguITguJvguLTguJTguIHguLLguKPguILguLLguKLguK3guK3guJnguYTguKXguJnguYw8L3RleHQ+CiAgPHRleHQgeD0iMzAiIHk9IjU2OCIgZm9udC1mYW1pbHk9IkFyaWFsLHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTkiIGZpbGw9InJnYmEoMjU1LDIyMCwxNTAsMSkiPlNhbGVzIE1hc3Rlcnk8L3RleHQ+CiAgPHJlY3QgeD0iMzAiIHk9IjU5MCIgd2lkdGg9IjYwIiBoZWlnaHQ9IjQiIGZpbGw9InJnYmEoMjU1LDE4MCw2MCwwLjkpIiByeD0iMiIvPgo8L3N2Zz4=",
-        location: data.location, meeting_url: data.meeting_url, startTime: data.startTime, endTime: data.endTime,
-        sessions: { Onsite: { capacity: data.capOnsite, booked: 0 }, Online: { capacity: data.capOnline, booked: 0 } } };
-      setClasses((prev) => [...prev, nc]);
-      showToast("เพิ่มคลาสใหม่แล้ว");
+      const ref = await db.collection("classes").add(payload);
+      classId = ref.id;
     }
+    for (const [classType, capacity] of [["Onsite", data.capOnsite], ["Online", data.capOnline]]) {
+      const existing = sessionsRaw.find((s) => s.class_ref?.id === classId && s.classType === classType);
+      if (existing) {
+        await db.collection("sessions").doc(existing.id).update({ capacity });
+      } else {
+        await db.collection("sessions").add({ class_ref: db.doc(`classes/${classId}`), classType, capacity, booked: 0 });
+      }
+    }
+    showToast(id ? "บันทึกการแก้ไขคลาสแล้ว" : "เพิ่มคลาสใหม่แล้ว");
     setCourseEdit(null);
   };
   // item 6 — ถอดรหัส QR จริงจากกล้อง: ข้อมูลใน QR คือ booking id → หา booking แล้วเช็คอิน
-  const handleScanDetect = (text) => {
+  const handleScanDetect = async (text) => {
     setScanOpen(false);
     const target = bookings.find((b) => b.id === text.trim());
     if (!target || effStatus(target) !== "Approved") { showToast("QR นี้ไม่ใช่ QR ที่พร้อมเช็คอิน"); return; }
-    checkIn(target.id, "scan");
+    await checkIn(target.id);
     const u = users.find((x) => x.uid === target.uid);
     showToast(`สแกนสำเร็จ · เช็คอิน ${u?.display_name}`);
   };
 
-  const drawerProps = { drawer, setDrawer, user, view, go, canBook, adminExpand, setAdminExpand, setUsers, setAuthUid };
+  const drawerProps = { drawer, setDrawer, user, view, go, canBook, adminExpand, setAdminExpand };
 
   const page = (() => {
 
@@ -908,7 +955,11 @@ function App() {
           <div className="bg-white rounded-2xl p-4 shadow-lg shadow-black/15 border border-slate-100">
             <label className="block cursor-pointer">
               <input type="file" accept="image/*" className="hidden" onChange={handleSlipFile} />
-              {slipPreview ? (
+              {slipUploading ? (
+                <div className="border-2 border-dashed border-slate-200 rounded-xl py-8 grid place-items-center text-slate-400">
+                  <Loader2 size={26} className="animate-spin" /><span className="text-xs mt-1">กำลังอัปโหลด…</span>
+                </div>
+              ) : slipPreview ? (
                 <div className="relative rounded-xl overflow-hidden">
                   <img src={slipPreview} alt="สลิปที่อัปโหลด" className="w-full aspect-[3/4] object-cover rounded-xl" />
                   <div className="absolute bottom-2 inset-x-2 bg-black/60 text-white text-[11px] text-center py-1.5 rounded-lg">แตะเพื่อเปลี่ยนรูป</div>
@@ -1018,8 +1069,7 @@ function App() {
     const b = latestBooking;
     if (!b) return <Shell><TopBar title="คิวอาร์โค้ด / ลิงก์ Zoom" onBack={() => go("home")} /><Empty icon={QrCode} text="ยังไม่มีการจองคลาส" /></Shell>;
     const cls = b.cls;
-    const pay = payments.find((p) => p.id === b.paymentId);
-    const approved = pay?.status === "Approved" && b.bookingStatus !== "Pending";
+    const es = effStatus(b);
     const zoomOpen = cls && cls.startTime - NOW <= 2 * H;
     const isOnline = b.sessionType === "Online";
     return (
@@ -1031,22 +1081,27 @@ function App() {
             <div className="p-4">
               <h2 className="font-semibold text-slate-800">{cls?.className}</h2>
               <div className="text-xs text-slate-400 mt-0.5">{classSchedule(cls?.startTime, cls?.endTime)} · {b.sessionType}</div>
-              <span className={`inline-block mt-2 text-[11px] px-2 py-0.5 rounded-full ${BOOK_STATUS_STYLE[b.bookingStatus].cls}`}>
-                {BOOK_STATUS_STYLE[b.bookingStatus].label}
+              <span className={`inline-block mt-2 text-[11px] px-2 py-0.5 rounded-full ${BOOK_STATUS_STYLE[es].cls}`}>
+                {BOOK_STATUS_STYLE[es].label}
               </span>
             </div>
           </div>
 
-          {!approved ? (
+          {es === "Pending" ? (
             <div className="bg-slate-100 rounded-2xl p-6 text-center text-slate-500">
               <Loader2 size={32} className="mx-auto animate-spin opacity-60" />
               <div className="text-sm mt-2">รอการอนุมัติก่อน จึงจะดู QR / ลิงก์ Zoom ได้</div>
             </div>
-          ) : b.bookingStatus === "Used" ? (
+          ) : es === "Used" ? (
             <div className="bg-emerald-50 text-emerald-700 rounded-2xl p-5 text-center">
               <CheckCircle2 size={40} className="mx-auto" />
               <div className="mt-2 font-medium">เช็คอินแล้ว</div>
               <div className="text-xs">{thDateTime(b.checkedInAt)} · {b.checkinVia === "scan" ? "สแกน QR" : "เข้า Zoom"}</div>
+            </div>
+          ) : es === "Expired" ? (
+            <div className="bg-rose-50 text-rose-600 rounded-2xl p-5 text-center">
+              <AlertTriangle size={32} className="mx-auto" />
+              <div className="text-sm mt-2">คลาสนี้สิ้นสุดเวลาแล้ว ไม่สามารถเช็คอินได้</div>
             </div>
           ) : !isOnline ? (
             // item 7 — Onsite: gen QR จาก bookingID
@@ -1134,8 +1189,8 @@ function App() {
   /* ===== ADMIN: SCAN — item 6 ===== */
   if (view === "admin:scan") {
     const rows = bookings
-      .map((b) => ({ ...b, cls: classes.find((c) => c.id === b.classId), u: users.find((x) => x.uid === b.uid) }))
-      .sort((a, b) => (a.cls?.startTime || 0) - (b.cls?.startTime || 0));
+      .filter((b) => b.classId === nearest?.id)
+      .map((b) => ({ ...b, cls: classes.find((c) => c.id === b.classId), u: users.find((x) => x.uid === b.uid) }));
     return (
       <Shell>
         <TopBar title="สแกนเข้าห้องเรียน" onBack={() => go("home")} />
@@ -1146,7 +1201,7 @@ function App() {
             <div className="text-[11px] text-slate-500 mt-1">อัปเดต booking ของเจ้าของ QR อัตโนมัติ</div>
           </button>
           {scanOpen && <ScanCamera onDetect={handleScanDetect} onClose={() => setScanOpen(false)} />}
-          <div className="text-xs font-medium text-slate-400 px-1">รายชื่อคนจอง</div>
+          <div className="text-xs font-medium text-slate-400 px-1">รายชื่อคนจอง · {nearest?.className || "-"}</div>
           {rows.map((b) => {
             const es = effStatus(b);
             const st = BOOK_STATUS_STYLE[es];
@@ -1178,7 +1233,7 @@ function App() {
     const perClass = classes.map((c) => {
       const bk = bookings.filter((b) => b.classId === c.id);
       return { cls: c, bk };
-    }).filter((x) => x.bk.length > 0);
+    }).sort((a, b) => b.cls.startTime - a.cls.startTime);
 
     const detailRows = attnDetail
       ? bookings.filter((b) => b.classId === attnDetail.classId && b.sessionType === attnDetail.session
@@ -1272,7 +1327,7 @@ function App() {
                     {detailRows.map((r) => (
                       <tr key={r.id} className="border-b border-slate-50">
                         <td className="py-1.5 text-slate-700">{r.u?.display_name}</td>
-                        <td className="py-1.5 text-slate-400 font-mono">{r.uid}</td>
+                        <td className="py-1.5 text-slate-400 font-mono">{r.u?.code}</td>
                         <td className="py-1.5 text-right">
                           <span className={`px-1.5 py-0.5 rounded ${BOOK_STATUS_STYLE[effStatus(r)].cls}`}>{BOOK_STATUS_STYLE[effStatus(r)].label}</span>
                         </td>
@@ -1308,7 +1363,7 @@ function App() {
             className="w-full text-white text-base font-semibold py-4 rounded-xl flex items-center justify-center gap-1.5 active:scale-[.98] transition" style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>
             + เพิ่มคอร์สใหม่
           </button>
-          {classes.map((c) => {
+          {classes.slice().sort((a, b) => b.startTime - a.startTime).map((c) => {
             const past = c.endTime < NOW;
             return (
               <div key={c.id} className="bg-white rounded-2xl p-3.5 shadow-lg shadow-black/15 border border-slate-100 flex gap-3 items-center">
@@ -1342,6 +1397,7 @@ function App() {
       <Shell>
         <TopBar title="Member" onBack={() => go("home")} />
         <div className="p-4 space-y-2">
+          <MemberStats users={users} payments={payments} />
           {users.map((u) => {
             const lp = payments.filter((p) => p.uid === u.uid && p.status === "Approved" && p.passName === "Member")
               .sort((a, b) => (b.expired_date || 0) - (a.expired_date || 0))[0];
@@ -1352,7 +1408,7 @@ function App() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="text-sm font-medium text-slate-800 truncate">{u.display_name}</span>
-                    <span className="text-[10px] font-mono text-slate-400 shrink-0">{u.uid}</span>
+                    <span className="text-[10px] font-mono text-slate-400 shrink-0">{u.code}</span>
                   </div>
                   <div className="text-[11px] text-slate-400 truncate">
                     {u.email}
@@ -1373,7 +1429,7 @@ function App() {
 
   /* ===== ADMIN: MEMBER ADMIN (editable) ===== */
   if (view === "admin:memberAdmin")
-    return <MemberAdmin users={users} setUsers={setUsers} payments={payments} onBack={() => go("home")} Shell={Shell} TopBar={TopBar} />;
+    return <MemberAdmin users={users} payments={payments} onBack={() => go("home")} Shell={Shell} TopBar={TopBar} />;
 
   return <Shell><Empty icon={AlertTriangle} text="ไม่พบหน้านี้" /></Shell>;
 
@@ -1399,13 +1455,19 @@ function ClassForm({ cls, onSave, onCancel }) {
     meeting_url: cls?.meeting_url || "",
   });
   const [err, setErr] = useState("");
+  const [uploading, setUploading] = useState(false);
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
-  const handleClassImageFile = (e) => {
+  const handleClassImageFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => set("class_url", reader.result);
-    reader.readAsDataURL(file);
+    setUploading(true);
+    try {
+      const url = await uploadFile(file, `cms_uploads/classes/${Date.now()}/${file.name}`);
+      set("class_url", url);
+    } catch (err) {
+      setErr("อัปโหลดรูปไม่สำเร็จ");
+    }
+    setUploading(false);
   };
   const submit = () => {
     if (!f.className.trim()) return setErr("กรุณาระบุชื่อคลาส");
@@ -1445,8 +1507,8 @@ function ClassForm({ cls, onSave, onCancel }) {
             {f.class_url
               ? <img src={f.class_url} alt="" className="w-24 aspect-[3/4] rounded-lg object-cover" />
               : <div className="w-24 aspect-[3/4] rounded-lg bg-orange-50 grid place-items-center text-orange-400"><Upload size={18} /></div>}
-            <div className="absolute inset-0 rounded-lg bg-black/50 opacity-0 group-hover:opacity-100 transition grid place-items-center text-white text-[10px] text-center px-1">
-              {f.class_url ? "แตะเพื่อเปลี่ยนรูป" : "แตะเพื่ออัปโหลด"}
+            <div className={`absolute inset-0 rounded-lg bg-black/50 transition grid place-items-center text-white text-[10px] text-center px-1 ${uploading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+              {uploading ? "กำลังอัปโหลด…" : f.class_url ? "แตะเพื่อเปลี่ยนรูป" : "แตะเพื่ออัปโหลด"}
             </div>
           </label>
           <div className="flex-1 space-y-1.5">
@@ -1476,15 +1538,24 @@ function ClassForm({ cls, onSave, onCancel }) {
 }
 
 /* ---------- Member Admin ---------- */
-function MemberAdmin({ users, setUsers, payments, onBack, Shell, TopBar }) {
+function MemberAdmin({ users, payments, onBack, Shell, TopBar }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
   const startEdit = (u) => { setEditing(u.uid); setForm({ ...u }); };
-  const save = () => { setUsers((prev) => prev.map((u) => u.uid === editing ? { ...u, ...form } : u)); setEditing(null); };
+  const save = async () => {
+    await db.collection("users").doc(editing).update({
+      display_name: form.display_name,
+      email: form.email,
+      phone_number: form.phone_number,
+      role: form.role.charAt(0).toUpperCase() + form.role.slice(1),
+    });
+    setEditing(null);
+  };
   return (
     <Shell>
       <TopBar title="Member Admin" onBack={onBack} />
       <div className="p-4 space-y-2.5">
+        <MemberStats users={users} payments={payments} />
         <div className="bg-orange-50 text-orange-700 text-xs rounded-xl px-3 py-2">เฉพาะ role <b>admin</b> · แก้ไขข้อมูลสมาชิกและสิทธิ์ได้</div>
         {users.map((u) => {
           const lp = payments.filter((p) => p.uid === u.uid && p.status === "Approved" && p.passName === "Member")
@@ -1502,7 +1573,7 @@ function MemberAdmin({ users, setUsers, payments, onBack, Shell, TopBar }) {
                   ) : (
                     <div className="flex items-center gap-1.5">
                       <span className="text-sm font-medium text-slate-800 truncate">{u.display_name}</span>
-                      <span className="text-[10px] font-mono text-slate-400 shrink-0">{u.uid}</span>
+                      <span className="text-[10px] font-mono text-slate-400 shrink-0">{u.code}</span>
                     </div>
                   )}
                   {!isEdit && (
@@ -1562,35 +1633,102 @@ function Field({ label, value, onChange }) {
 }
 
 /* ---------- Login ---------- */
-function Login({ users, onLogin }) {
+function mapAuthError(e) {
+  const code = e?.code || "";
+  if (code.includes("wrong-password") || code.includes("invalid-credential") || code.includes("invalid-login-credentials")) return "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
+  if (code.includes("user-not-found")) return "ไม่พบบัญชีนี้ในระบบ";
+  if (code.includes("too-many-requests")) return "ลองผิดหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง";
+  if (code.includes("email-already-in-use")) return "อีเมลนี้มีบัญชีอยู่แล้ว";
+  if (code.includes("weak-password")) return "รหัสผ่านสั้นเกินไป (อย่างน้อย 6 ตัวอักษร)";
+  if (code.includes("invalid-email")) return "รูปแบบอีเมลไม่ถูกต้อง";
+  return e?.message || "เกิดข้อผิดพลาด กรุณาลองใหม่";
+}
+
+function Login() {
+  const [mode, setMode] = useState("signin"); // signin | forgot | register
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState("");
-  const submit = () => {
-    const u = users.find((x) => x.email.toLowerCase() === email.trim().toLowerCase());
-    if (u) onLogin(u.uid); else setErr("ไม่พบอีเมลนี้ในระบบ");
+  const [info, setInfo] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const switchMode = (m) => { setMode(m); setErr(""); setInfo(""); };
+
+  const submit = async () => {
+    setErr(""); setInfo("");
+    if (!email.trim()) return setErr("กรุณากรอกอีเมล");
+    setBusy(true);
+    try {
+      if (mode === "signin") {
+        await auth.signInWithEmailAndPassword(email.trim(), password);
+      } else if (mode === "forgot") {
+        await auth.sendPasswordResetEmail(email.trim());
+        setInfo("ส่งลิงก์รีเซ็ตรหัสผ่านไปที่อีเมลแล้ว");
+      } else if (mode === "register") {
+        const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
+        await db.collection("users").doc(cred.user.uid).set({
+          display_name: name.trim() || email.trim(),
+          email: email.trim(),
+          phone_number: "",
+          role: "Guest",
+          memberStatus: "Guest",
+          photo_url: "",
+          line: "",
+          created_time: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      setErr(mapAuthError(e));
+    }
+    setBusy(false);
   };
+
   return (
     <div className="min-h-screen bg-slate-50 flex justify-center">
       <div className="w-full max-w-[440px] px-6 flex flex-col justify-center">
         <div className="text-center mb-8">
           <OwnerLogo className="w-20 h-20 mx-auto" />
           <h1 className="text-2xl font-bold text-slate-800 mt-3">The Owner Class</h1>
-          <p className="text-sm text-slate-400">เข้าสู่ระบบด้วยอีเมล</p>
+          <p className="text-sm text-slate-400">
+            {mode === "signin" ? "เข้าสู่ระบบด้วยอีเมล" : mode === "forgot" ? "รีเซ็ตรหัสผ่าน" : "ลงทะเบียนสมาชิกใหม่"}
+          </p>
         </div>
+        {mode === "register" && (
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ชื่อ-นามสกุล"
+            className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-base mb-3 focus:outline-none focus:border-orange-300" />
+        )}
         <input value={email} onChange={(e) => { setEmail(e.target.value); setErr(""); }}
-          onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="อีเมล"
+          onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="อีเมล" type="email"
           className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-base focus:outline-none focus:border-orange-300" />
-        {err && <div className="text-xs text-rose-500 mt-1.5">{err}</div>}
-        <button onClick={submit} className="mt-3 w-full text-white text-base font-semibold py-4 rounded-xl active:scale-[.98] transition" style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>เข้าสู่ระบบ</button>
-        <div className="mt-6 text-[11px] text-slate-400">
-          <div className="mb-1.5">บัญชีสาธิต — แตะเพื่อกรอก:</div>
-          {users.map((u) => (
-            <button key={u.uid} onClick={() => setEmail(u.email)}
-              className="block w-full text-left bg-white border border-slate-100 rounded-lg px-3 py-2 mb-1.5 hover:border-orange-200">
-              <span className="text-slate-600">{u.email}</span>
-              <span className="text-slate-400"> · {u.display_name} ({ROLE_LABELS[u.role]})</span>
+        {mode !== "forgot" && (
+          <div className="relative mt-3">
+            <input value={password} onChange={(e) => { setPassword(e.target.value); setErr(""); }}
+              onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="รหัสผ่าน" type={showPw ? "text" : "password"}
+              className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 pr-11 text-base focus:outline-none focus:border-orange-300" />
+            <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
+              {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
-          ))}
+          </div>
+        )}
+        {mode === "signin" && (
+          <button type="button" onClick={() => switchMode("forgot")} className="mt-2 self-end text-xs" style={{ color: BRAND }}>ลืมรหัสผ่าน?</button>
+        )}
+        {err && <div className="text-xs text-rose-500 mt-1.5">{err}</div>}
+        {info && <div className="text-xs text-emerald-600 mt-1.5">{info}</div>}
+        <button onClick={submit} disabled={busy}
+          className="mt-3 w-full text-white text-base font-semibold py-4 rounded-xl active:scale-[.98] transition disabled:opacity-60"
+          style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>
+          {busy ? "กำลังดำเนินการ…" : mode === "signin" ? "ลงชื่อ" : mode === "forgot" ? "ส่งลิงก์รีเซ็ต" : "ลงทะเบียน"}
+        </button>
+        <div className="mt-4 text-center text-xs text-slate-400">
+          {mode === "signin" && (
+            <>หากยังไม่มีบัญชี? <button onClick={() => switchMode("register")} className="font-medium" style={{ color: BRAND }}>โปรดลงทะเบียน</button></>
+          )}
+          {mode !== "signin" && (
+            <button onClick={() => switchMode("signin")} className="font-medium" style={{ color: BRAND }}>กลับไปเข้าสู่ระบบ</button>
+          )}
         </div>
       </div>
     </div>
