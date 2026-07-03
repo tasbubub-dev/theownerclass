@@ -478,8 +478,13 @@ function ScanCamera({ onDetect, onClose }) {
       </div>
       <div className="flex-1 relative overflow-hidden">
         <video ref={videoRef} playsInline muted className="absolute inset-0 w-full h-full object-cover" />
-        <div className="absolute inset-0 grid place-items-center pointer-events-none">
-          <div className="w-56 h-56 border-2 border-orange-400 rounded-2xl" style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,.65)" }} />
+        <div className="absolute inset-0 grid pointer-events-none"
+          style={{ gridTemplateColumns: "1fr 224px 1fr", gridTemplateRows: "1fr 224px 1fr" }}>
+          <div className="col-span-3" style={{ background: "rgba(0,0,0,.65)" }} />
+          <div style={{ background: "rgba(0,0,0,.65)" }} />
+          <div className="border-2 border-orange-400 rounded-2xl" />
+          <div style={{ background: "rgba(0,0,0,.65)" }} />
+          <div className="col-span-3" style={{ background: "rgba(0,0,0,.65)" }} />
         </div>
         {error && (
           <div className="absolute inset-x-4 top-4 bg-rose-600 text-white text-xs rounded-xl px-3 py-2 text-center">{error}</div>
@@ -726,9 +731,20 @@ function App() {
   const latestBooking = upcomingMine[0] || myBookings.sort((a, b) => (b.cls?.startTime || 0) - (a.cls?.startTime || 0))[0];
 
   /* ---- ACTIONS (เขียนขึ้น Firestore จริง) ---- */
+  const nextMemberCode = () => {
+    const nums = users
+      .map((u) => (u.code.match(/^OW(\d+)$/i) || [])[1])
+      .filter(Boolean)
+      .map(Number);
+    const next = (nums.length ? Math.max(...nums) : 0) + 1;
+    return "OW" + String(next).padStart(4, "0");
+  };
   const buyPass = async (passName) => {
     const pass = PASSES[passName];
     if (!pass) return;
+    if (!user.code) {
+      await db.collection("users").doc(user.uid).update({ line: nextMemberCode() });
+    }
     await db.collection("payments").add({
       uid: user.uid,
       user_ref: db.doc(`users/${user.uid}`),
