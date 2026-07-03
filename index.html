@@ -500,6 +500,16 @@ function mapUserDoc(raw) {
   };
 }
 
+// เดิมประกาศซ้ำในหน้าข้อมูลการเข้าเรียนทุก render — ย้ายออกมาเป็น top-level ให้เหมือนจุดอื่น
+function AttendanceNum({ classId, session, kind, value, color, onOpen }) {
+  return (
+    <button onClick={() => onOpen({ classId, session, kind })}
+      className={`w-11 mx-auto block rounded-md py-1 text-center hover:ring-2 hover:ring-offset-1 transition ${color.bg}`}>
+      <div className={`text-sm font-bold leading-tight ${color.text}`}>{value}</div>
+    </button>
+  );
+}
+
 function App() {
   const [fbUser, setFbUser] = useState(undefined);   // undefined = กำลังเช็ค, null = ยังไม่ login, object = login แล้ว
   const [myProfileRaw, setMyProfileRaw] = useState(null);
@@ -520,6 +530,7 @@ function App() {
   const [attnDetail, setAttnDetail] = useState(null);     // item 5: {classId, session, kind}
   const [scanOpen, setScanOpen] = useState(false);        // item 6 — เปิดกล้องสแกน QR จริง
   const [courseEdit, setCourseEdit] = useState(null);     // 'new' | classId | null
+  const [courseDeleteConfirm, setCourseDeleteConfirm] = useState(null); // classId ที่กำลังจะยืนยันลบ
   const [slipPreview, setSlipPreview] = useState(null);   // download URL ของสลิปที่อัปโหลดขึ้น Storage แล้ว
   const [slipUploading, setSlipUploading] = useState(false);
 
@@ -658,7 +669,7 @@ function App() {
   }), [bookingsRaw, sessionsById]);
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
-  const go = (v) => { setView(v); setDrawer(false); setBookSel(null); setAttnDetail(null); setCourseEdit(null); setSlipPreview(null); };
+  const go = (v) => { setView(v); setDrawer(false); setBookSel(null); setAttnDetail(null); setCourseEdit(null); setCourseDeleteConfirm(null); setSlipPreview(null); };
   const handleSlipFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -805,6 +816,15 @@ function App() {
     }
     showToast(id ? "บันทึกการแก้ไขคลาสแล้ว" : "เพิ่มคลาสใหม่แล้ว");
     setCourseEdit(null);
+  };
+  const deleteClass = async (id) => {
+    const cls = classes.find((c) => c.id === id);
+    if (cls && cls.endTime < NOW) { showToast("คลาสที่ผ่านมาแล้วลบไม่ได้"); setCourseDeleteConfirm(null); return; }
+    const relatedSessions = sessionsRaw.filter((s) => s.class_ref?.id === id);
+    await Promise.all(relatedSessions.map((s) => db.collection("sessions").doc(s.id).delete()));
+    await db.collection("classes").doc(id).delete();
+    setCourseDeleteConfirm(null);
+    showToast("ลบคอร์สแล้ว");
   };
   // item 6 — ถอดรหัส QR จริงจากกล้อง: ข้อมูลใน QR คือ booking id → หา booking แล้วเช็คอิน
   const handleScanDetect = async (text) => {
@@ -1092,21 +1112,7 @@ function App() {
       <Shell>
         <TopBar title="คิวอาร์โค้ด / ลิงก์ Zoom" onBack={() => go("home")} />
         <div className="p-4 flex flex-col gap-3" style={{ minHeight: "calc(100dvh - 56px)" }}>
-          {/* ครึ่งบน — ข้อมูลคลาส */}
-          <div className="flex-1 min-h-0 bg-white rounded-2xl p-3 shadow-lg shadow-black/15 border border-slate-100 flex flex-col">
-            <div className="flex-1 min-h-0 flex items-center justify-center">
-              <img src={cls?.class_url} alt="" className="h-full max-w-full aspect-[3/4] object-cover rounded-xl" />
-            </div>
-            <h2 className="font-semibold text-slate-800 text-center mt-2 truncate">{cls?.className}</h2>
-            <div className="text-xs text-slate-500 mt-0.5 text-center truncate">{classSchedule(cls?.startTime, cls?.endTime)} · {b.sessionType}</div>
-            <div className="text-center mt-1">
-              <span className={`inline-block text-xs px-2 py-0.5 rounded-full ${BOOK_STATUS_STYLE[es].cls}`}>
-                {BOOK_STATUS_STYLE[es].label}
-              </span>
-            </div>
-          </div>
-
-          {/* ครึ่งล่าง — QR / สถานะ / Zoom */}
+          {/* บน — QR / สถานะ / Zoom (พื้นที่หลัก) */}
           <div className="flex-1 min-h-0">
             {es === "Pending" ? (
               <div className="h-full bg-slate-100 rounded-2xl p-6 text-center text-slate-600 flex flex-col items-center justify-center">
@@ -1153,6 +1159,11 @@ function App() {
                 )}
               </div>
             )}
+          </div>
+
+          {/* ล่าง — รูปคลาส ยึดความสูงเป็นหลัก รักษาสัดส่วน มีระยะห่างจากขอบกล่องเล็กน้อย */}
+          <div className="flex-1 min-h-0 bg-white rounded-2xl p-3 shadow-lg shadow-black/15 border border-slate-100 flex items-center justify-center">
+            <img src={cls?.class_url} alt="" className="h-full max-w-full aspect-[3/4] object-cover rounded-xl" />
           </div>
         </div>
       </Shell>
@@ -1265,12 +1276,6 @@ function App() {
           .map((b) => ({ ...b, u: users.find((x) => x.uid === b.uid) }))
       : [];
 
-    const Num = ({ classId, session, kind, value, color }) => (
-      <button onClick={() => setAttnDetail({ classId, session, kind })}
-        className={`w-11 mx-auto block rounded-md py-1 text-center hover:ring-2 hover:ring-offset-1 transition ${color.bg}`}>
-        <div className={`text-sm font-bold leading-tight ${color.text}`}>{value}</div>
-      </button>
-    );
     const activeCls = perClass.find((x) => x.cls.id === attnDetail?.classId)?.cls;
 
     return (
@@ -1308,16 +1313,16 @@ function App() {
                           <div className="text-[11px] text-slate-500">{thDateTime(cls.startTime)}</div>
                         </td>
                         <td className="py-1 border-l border-slate-100">
-                          <Num classId={cls.id} session="Onsite" kind="checkin" value={count("Onsite", "checkin")} color={{ bg: "bg-sky-50", text: "text-sky-600" }} />
+                          <AttendanceNum classId={cls.id} session="Onsite" kind="checkin" value={count("Onsite", "checkin")} color={{ bg: "bg-sky-50", text: "text-sky-600" }} onOpen={setAttnDetail} />
                         </td>
                         <td className="py-1">
-                          <Num classId={cls.id} session="Onsite" kind="booked" value={count("Onsite", "booked")} color={{ bg: "bg-slate-50", text: "text-slate-700" }} />
+                          <AttendanceNum classId={cls.id} session="Onsite" kind="booked" value={count("Onsite", "booked")} color={{ bg: "bg-slate-50", text: "text-slate-700" }} onOpen={setAttnDetail} />
                         </td>
                         <td className="py-1 border-l border-slate-100">
-                          <Num classId={cls.id} session="Online" kind="checkin" value={count("Online", "checkin")} color={{ bg: "bg-sky-50", text: "text-sky-600" }} />
+                          <AttendanceNum classId={cls.id} session="Online" kind="checkin" value={count("Online", "checkin")} color={{ bg: "bg-sky-50", text: "text-sky-600" }} onOpen={setAttnDetail} />
                         </td>
                         <td className="py-1">
-                          <Num classId={cls.id} session="Online" kind="booked" value={count("Online", "booked")} color={{ bg: "bg-slate-50", text: "text-slate-700" }} />
+                          <AttendanceNum classId={cls.id} session="Online" kind="booked" value={count("Online", "booked")} color={{ bg: "bg-slate-50", text: "text-slate-700" }} onOpen={setAttnDetail} />
                         </td>
                       </tr>
                     );
@@ -1389,23 +1394,45 @@ function App() {
           </button>
           {classes.slice().sort((a, b) => b.startTime - a.startTime).map((c) => {
             const past = c.endTime < NOW;
+            const confirming = courseDeleteConfirm === c.id;
             return (
-              <div key={c.id} className="bg-white rounded-2xl p-3.5 shadow-lg shadow-black/15 border border-slate-100 flex gap-3 items-center">
-                <img src={c.class_url} alt="" className="w-11 h-11 rounded-xl object-cover" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-slate-800 truncate">{c.className}</div>
-                  <div className="text-xs text-slate-500">{thDateTime(c.startTime)}</div>
-                  <div className="text-xs text-slate-500">
-                    Onsite {c.sessions.Onsite.booked}/{c.sessions.Onsite.capacity} · Online {c.sessions.Online.booked}/{c.sessions.Online.capacity}
+              <div key={c.id} className="bg-white rounded-2xl p-3.5 shadow-lg shadow-black/15 border border-slate-100">
+                <div className="flex gap-3 items-center">
+                  <img src={c.class_url} alt="" className="w-11 h-11 rounded-xl object-cover" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-slate-800 truncate">{c.className}</div>
+                    <div className="text-xs text-slate-500">{thDateTime(c.startTime)}</div>
+                    <div className="text-xs text-slate-500">
+                      Onsite {c.sessions.Onsite.booked}/{c.sessions.Onsite.capacity} · Online {c.sessions.Online.booked}/{c.sessions.Online.capacity}
+                    </div>
                   </div>
+                  {!confirming && (
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      {past ? (
+                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full text-center">จบแล้ว</span>
+                      ) : (
+                        <button onClick={() => setCourseEdit(c.id)}
+                          className="text-xs px-3 py-2 rounded-lg flex items-center gap-1 border border-slate-200 text-slate-600 hover:border-orange-200">
+                          <Pencil size={14} /> แก้ไข
+                        </button>
+                      )}
+                      {!past && (
+                        <button onClick={() => setCourseDeleteConfirm(c.id)}
+                          className="text-xs px-3 py-2 rounded-lg flex items-center gap-1 border border-rose-200 text-rose-600 hover:bg-rose-50">
+                          <XCircle size={14} /> ลบ
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {past ? (
-                  <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full shrink-0">จบแล้ว</span>
-                ) : (
-                  <button onClick={() => setCourseEdit(c.id)}
-                    className="text-xs px-3 py-2 rounded-lg flex items-center gap-1 shrink-0 border border-slate-200 text-slate-600 hover:border-orange-200">
-                    <Pencil size={14} /> แก้ไข
-                  </button>
+                {confirming && (
+                  <div className="mt-3 border-t border-slate-100 pt-3">
+                    <div className="text-xs text-rose-600 mb-2">ลบคอร์สนี้ถาวร รวมถึงข้อมูล session — ยืนยันหรือไม่?</div>
+                    <div className="flex gap-2">
+                      <button onClick={() => deleteClass(c.id)} className="flex-1 text-white text-sm font-medium py-2.5 rounded-xl bg-rose-600 active:scale-[.98] transition">ยืนยันลบ</button>
+                      <button onClick={() => setCourseDeleteConfirm(null)} className="flex-1 text-slate-600 text-sm font-medium py-2.5 rounded-xl bg-slate-100 active:scale-[.98] transition">ยกเลิก</button>
+                    </div>
+                  </div>
                 )}
               </div>
             );
@@ -1461,6 +1488,13 @@ function App() {
 }
 
 /* ---------- Class Form (add / edit) ---------- */
+// เดิม L ถูกประกาศซ้ำใน ClassForm ทุก render ทำให้ input ข้างในโดน remount ทุกครั้งที่พิมพ์ (คีย์บอร์ดหลุด/พิมพ์ได้ทีละตัว)
+function FormLabel({ label, children }) {
+  return (
+    <div><div className="text-xs text-slate-500 mb-1">{label}</div>{children}</div>
+  );
+}
+
 function ClassForm({ cls, onSave, onCancel }) {
   const [f, setF] = useState({
     className: cls?.className || "",
@@ -1502,15 +1536,12 @@ function ClassForm({ cls, onSave, onCancel }) {
       location: f.location.trim(), meeting_url: f.meeting_url.trim(),
     });
   };
-  const L = ({ label, children }) => (
-    <div><div className="text-xs text-slate-500 mb-1">{label}</div>{children}</div>
-  );
   const inputCls = "w-full text-sm border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-orange-300";
   return (
     <div className="p-4 space-y-3.5">
-      <L label="Classname"><input value={f.className} onChange={(e) => set("className", e.target.value)} className={inputCls} placeholder="เช่น BIZ101" /></L>
-      <L label="InstructorName"><input value={f.instructorName} onChange={(e) => set("instructorName", e.target.value)} className={inputCls} /></L>
-      <L label="Description"><textarea value={f.description} onChange={(e) => set("description", e.target.value)} rows={3} className={inputCls} /></L>
+      <FormLabel label="Classname"><input value={f.className} onChange={(e) => set("className", e.target.value)} className={inputCls} placeholder="เช่น BIZ101" /></FormLabel>
+      <FormLabel label="InstructorName"><input value={f.instructorName} onChange={(e) => set("instructorName", e.target.value)} className={inputCls} /></FormLabel>
+      <FormLabel label="Description"><textarea value={f.description} onChange={(e) => set("description", e.target.value)} rows={3} className={inputCls} /></FormLabel>
 
       <div className="flex gap-4 bg-white rounded-xl border border-slate-100 px-4 py-3">
         <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
@@ -1541,14 +1572,14 @@ function ClassForm({ cls, onSave, onCancel }) {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <L label="Capacity Onsite"><input type="number" min="0" value={f.capOnsite} onChange={(e) => set("capOnsite", e.target.value)} className={inputCls} /></L>
-        <L label="Capacity Online"><input type="number" min="0" value={f.capOnline} onChange={(e) => set("capOnline", e.target.value)} className={inputCls} /></L>
+        <FormLabel label="Capacity Onsite"><input type="number" min="0" value={f.capOnsite} onChange={(e) => set("capOnsite", e.target.value)} className={inputCls} /></FormLabel>
+        <FormLabel label="Capacity Online"><input type="number" min="0" value={f.capOnline} onChange={(e) => set("capOnline", e.target.value)} className={inputCls} /></FormLabel>
       </div>
 
-      <L label="StartTime"><input type="datetime-local" value={f.startLocal} onChange={(e) => set("startLocal", e.target.value)} className={inputCls} /></L>
-      <L label="EndTime"><input type="datetime-local" value={f.endLocal} onChange={(e) => set("endLocal", e.target.value)} className={inputCls} /></L>
-      <L label="Location"><input value={f.location} onChange={(e) => set("location", e.target.value)} className={inputCls} /></L>
-      <L label="MeetingURL"><input value={f.meeting_url} onChange={(e) => set("meeting_url", e.target.value)} className={inputCls} placeholder="https://us02web.zoom.us/j/..." /></L>
+      <FormLabel label="StartTime"><input type="datetime-local" value={f.startLocal} onChange={(e) => set("startLocal", e.target.value)} className={inputCls} /></FormLabel>
+      <FormLabel label="EndTime"><input type="datetime-local" value={f.endLocal} onChange={(e) => set("endLocal", e.target.value)} className={inputCls} /></FormLabel>
+      <FormLabel label="Location"><input value={f.location} onChange={(e) => set("location", e.target.value)} className={inputCls} /></FormLabel>
+      <FormLabel label="MeetingURL"><input value={f.meeting_url} onChange={(e) => set("meeting_url", e.target.value)} className={inputCls} placeholder="https://us02web.zoom.us/j/..." /></FormLabel>
 
       {err && <div className="text-xs text-rose-500">{err}</div>}
       <div className="flex gap-2 pt-1">
