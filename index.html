@@ -478,8 +478,8 @@ function ScanCamera({ onDetect, onClose }) {
       </div>
       <div className="flex-1 relative overflow-hidden">
         <video ref={videoRef} playsInline muted className="absolute inset-0 w-full h-full object-cover" />
-        <div className="absolute inset-0 grid place-items-center">
-          <div className="w-56 h-56 border-2 border-orange-400 rounded-2xl" />
+        <div className="absolute inset-0 grid place-items-center pointer-events-none">
+          <div className="w-56 h-56 border-2 border-orange-400 rounded-2xl" style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,.65)" }} />
         </div>
         {error && (
           <div className="absolute inset-x-4 top-4 bg-rose-600 text-white text-xs rounded-xl px-3 py-2 text-center">{error}</div>
