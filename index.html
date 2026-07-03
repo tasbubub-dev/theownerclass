@@ -4,6 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>The Owner Class</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<meta name="theme-color" content="#2f3fe0" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="The Owner Class" />
 <script src="https://cdn.tailwindcss.com"></script>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -704,6 +711,7 @@ function App() {
   }, [user, payments]);
 
   const canBook = membership.active || membership.pending;
+  const canBookClass = (cls) => !!cls?.is_free_booking || canBook;
 
   if (fbUser === undefined) return <div className="min-h-screen grid place-items-center text-slate-500 text-sm">กำลังโหลด…</div>;
   if (!fbUser) return <Login />;
@@ -758,7 +766,7 @@ function App() {
     showToast("ปฏิเสธสลิปแล้ว");
   };
   const bookClass = async (cls, sessionType) => {
-    if (!canBook) { go("payments"); return; }
+    if (!canBookClass(cls)) { go("payments"); return; }
     const sessionId = cls.sessions[sessionType].sessionId;
     if (!sessionId) { showToast("ไม่พบ session นี้ในระบบ"); return; }
     await db.collection("bookings").add({
@@ -856,7 +864,7 @@ function App() {
     showToast(`สแกนสำเร็จ · เช็คอิน ${u?.display_name}`);
   };
 
-  const drawerProps = { drawer, setDrawer, user, view, go, canBook, adminExpand, setAdminExpand };
+  const drawerProps = { drawer, setDrawer, user, view, go, canBook: canBookClass(nearest), adminExpand, setAdminExpand };
 
   const page = (() => {
 
@@ -882,13 +890,13 @@ function App() {
                   <InfoLine icon={MapPin} text={nearest.location} />
                 </div>
                 <button onClick={() => {
-                    if (!canBook) return go("payments");
+                    if (!canBookClass(nearest)) return go("payments");
                     const already = bookings.some((b) => b.uid === user.uid && b.classId === nearest.id);
                     go(already ? "mybookings" : "book");
                   }}
                   className="mt-auto w-full text-white text-base font-semibold py-4 rounded-xl flex items-center justify-center gap-1.5 active:scale-[.98] transition"
                   style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>
-                  {!canBook ? "ซื้อบัตรก่อนจอง"
+                  {!canBookClass(nearest) ? "ซื้อบัตรก่อนจอง"
                     : bookings.some((b) => b.uid === user.uid && b.classId === nearest.id)
                       ? <>ดู QR / ลิงก์ Zoom <ArrowRight size={16} /></>
                       : <>จองคลาสนี้ <ArrowRight size={16} /></>}
@@ -1067,6 +1075,15 @@ function App() {
                 <QrCode size={16} /> ดู QR / ลิงก์ Zoom
               </button>
             </div>
+          ) : !canBookClass(nearest) ? (
+            <div className="bg-rose-50 rounded-2xl p-4 text-center space-y-3 mt-auto">
+              <div className="text-rose-600 text-sm">
+                บัตรของคุณหมดอายุหรือยังไม่มีบัตร ต้องมีบัตรที่ยังไม่หมดอายุจึงจะจองคลาสนี้ได้
+              </div>
+              <button onClick={() => go("payments")} className="w-full text-white text-sm font-medium py-2.5 rounded-xl flex items-center justify-center gap-1.5" style={{ background: BRAND }}>
+                <Ticket size={16} /> ซื้อบัตรใหม่
+              </button>
+            </div>
           ) : (
             <>
               <div className="text-xs font-medium text-slate-500 px-1">เลือกรูปแบบการเรียน (เลือกได้อย่างเดียว)</div>
@@ -1125,6 +1142,24 @@ function App() {
     const b = latestBooking;
     if (!b) return <Shell><TopBar title="คิวอาร์โค้ด / ลิงก์ Zoom" onBack={() => go("home")} /><Empty icon={QrCode} text="ยังไม่มีการจองคลาส" /></Shell>;
     const cls = b.cls;
+    // มีคลาสอื่นแทรกก่อนถึงคลาสที่จองไว้ → ซ่อน QR จนกว่าคลาสที่แทรกจะจบ
+    const blocking = classes
+      .filter((c) => c.active && c.id !== cls.id && c.startTime < cls.startTime && c.endTime > NOW)
+      .sort((a, b2) => a.startTime - b2.startTime)[0];
+    if (blocking) {
+      return (
+        <Shell>
+          <TopBar title="คิวอาร์โค้ด / ลิงก์ Zoom" onBack={() => go("home")} />
+          <div className="p-4" style={{ minHeight: "calc(100dvh - 56px)" }}>
+            <div className="h-full bg-slate-100 rounded-2xl p-6 text-center text-slate-600 flex flex-col items-center justify-center gap-1">
+              <Clock size={32} className="opacity-60" />
+              <div className="text-sm mt-2">มีคลาส "{blocking.className}" คั่นก่อนถึงคลาสของคุณ</div>
+              <div className="text-xs text-slate-500 mt-1">จะแสดง QR / ลิงก์ Zoom อีกครั้งหลังคลาสนี้ {classSchedule(blocking.startTime, blocking.endTime)} เสร็จสิ้น</div>
+            </div>
+          </div>
+        </Shell>
+      );
+    }
     const es = effStatus(b);
     const zoomOpen = cls && cls.startTime - NOW <= 2 * H;
     const isOnline = b.sessionType === "Online";
