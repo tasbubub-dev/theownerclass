@@ -114,6 +114,12 @@ const toLocalInput = (ms) => {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 };
 const fromLocalInput = (s) => new Date(s).getTime();
+const toDateInput = (ms) => {
+  if (ms == null) return "";
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+const fromDateInputEndOfDay = (s) => (s ? new Date(`${s}T23:59:59`).getTime() : null);
 
 const ROLE_LABELS = { guest: "Guest", scanner: "Scanner", approver: "Approver", editor: "Editor", admin: "Admin" };
 
@@ -136,6 +142,11 @@ function latestMemberPayment(uid, payments) {
 function isActiveMember(uid, payments) {
   const exp = latestMemberPayment(uid, payments)?.expired_date;
   return !!(exp && exp > NOW);
+}
+// payment บัตร Member ล่าสุดที่แก้ไขได้ (รวมที่หมดอายุไปแล้วด้วย ต่างจาก latestMemberPayment ที่ใช้แสดงผลอย่างเดียว)
+function editableMemberPayment(uid, payments) {
+  return payments.filter((p) => p.uid === uid && p.passName === "Member" && (p.status === "Approved" || p.status === "Expired"))
+    .sort((a, b) => (b.expired_date || 0) - (a.expired_date || 0))[0];
 }
 // เรียงคนที่มีรหัส OWxxxx ก่อน (ตามรหัส) ส่วนคนที่ยังไม่มีรหัส (code ว่าง) ต่อท้ายสุด
 function sortMembersByCode(users) {
@@ -1790,7 +1801,11 @@ function PassForm({ pass, onSave, onCancel }) {
 function MemberAdmin({ users, payments, onBack, Shell, TopBar }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
-  const startEdit = (u) => { setEditing(u.uid); setForm({ ...u }); };
+  const startEdit = (u) => {
+    const pay = editableMemberPayment(u.uid, payments);
+    setEditing(u.uid);
+    setForm({ ...u, payId: pay?.id || null, expDate: toDateInput(pay?.expired_date) });
+  };
   const save = async () => {
     await db.collection("users").doc(editing).update({
       display_name: form.display_name,
@@ -1798,6 +1813,15 @@ function MemberAdmin({ users, payments, onBack, Shell, TopBar }) {
       phone_number: form.phone_number,
       role: form.role.charAt(0).toUpperCase() + form.role.slice(1),
     });
+    if (form.payId) {
+      const ms = fromDateInputEndOfDay(form.expDate);
+      if (ms) {
+        await db.collection("payments").doc(form.payId).update({
+          expired_date: firebase.firestore.Timestamp.fromMillis(ms),
+          status: ms > Date.now() ? "Approved" : "Expired",
+        });
+      }
+    }
     setEditing(null);
   };
   return (
@@ -1846,6 +1870,11 @@ function MemberAdmin({ users, payments, onBack, Shell, TopBar }) {
                 <div className="mt-2 space-y-2">
                   <Field label="อีเมล" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
                   <Field label="เบอร์โทร" value={form.phone_number} onChange={(v) => setForm({ ...form, phone_number: v })} />
+                  {form.payId ? (
+                    <Field type="date" label="วันหมดอายุบัตร Member" value={form.expDate} onChange={(v) => setForm({ ...form, expDate: v })} />
+                  ) : (
+                    <div className="text-xs text-slate-400">ยังไม่มีบัตร Member ในระบบ ไม่สามารถแก้ไขวันหมดอายุได้</div>
+                  )}
                   <div>
                     <div className="text-xs text-slate-500 mb-1">Role</div>
                     <div className="flex gap-1.5 flex-wrap">
@@ -1869,11 +1898,11 @@ function MemberAdmin({ users, payments, onBack, Shell, TopBar }) {
     </Shell>
   );
 }
-function Field({ label, value, onChange }) {
+function Field({ label, value, onChange, type = "text" }) {
   return (
     <div>
       <div className="text-xs text-slate-500 mb-0.5">{label}</div>
-      <input value={value} onChange={(e) => onChange(e.target.value)}
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
         className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-orange-300" />
     </div>
   );
