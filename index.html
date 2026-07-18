@@ -744,10 +744,11 @@ function App() {
     const latest = mine[0];
     if (!latest) return { active: false, pending: false };
     if (latest.status === "Pending") return { active: false, pending: true, type: latest.passName, payment: latest };
-    if (latest.status === "Approved") {
+    if (latest.status === "Approved" || latest.status === "Expired") {
+      const isExpiredStatus = latest.status === "Expired";
       if (latest.passName === "One")
-        return { active: true, type: "One", payment: latest, expired_date: null, daysLeft: null };
-      const active = latest.expired_date > NOW;
+        return { active: !isExpiredStatus, type: "One", payment: latest, expired_date: null, daysLeft: null };
+      const active = !isExpiredStatus && latest.expired_date > NOW;
       return { active, type: "Member", payment: latest, expired_date: latest.expired_date,
         daysLeft: Math.max(0, Math.ceil((latest.expired_date - NOW) / D)) };
     }
