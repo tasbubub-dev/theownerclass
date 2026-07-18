@@ -818,6 +818,13 @@ function App() {
       checkedin_at: firebase.firestore.FieldValue.serverTimestamp(),
       checkedin_by: user.uid,
     });
+    // บัตร 150 (ใช้ครั้งเดียว) — เช็คอินแล้วให้บัตรหมดอายุทันที และตั้ง memberExpire ของ user เป็นเวลานี้
+    const bk = bookings.find((b) => b.id === bookingId);
+    const pay = bk && payments.find((p) => p.id === bk.paymentId);
+    if (pay?.passName === "150") {
+      await db.collection("payments").doc(pay.id).update({ status: "Expired" });
+      await db.collection("users").doc(bk.uid).update({ memberExpire: firebase.firestore.FieldValue.serverTimestamp() });
+    }
   };
   // สถานะที่แสดงจริง: เช็คอินแล้ว > (หมดเวลาเฉพาะเมื่อคลาสจบ) > อนุมัติแล้ว=พร้อมเข้าเรียน > รออนุมัติ
   const effStatus = (b) => {
