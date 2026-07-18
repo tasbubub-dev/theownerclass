@@ -122,6 +122,15 @@ const toDateInput = (ms) => {
 const fromDateInputEndOfDay = (s) => (s ? new Date(`${s}T23:59:59`).getTime() : null);
 
 const ROLE_LABELS = { guest: "Guest", scanner: "Scanner", approver: "Approver", editor: "Editor", admin: "Admin" };
+// รายชื่ออัพไลน์ที่ตั้งค่าไว้ตายตัวสำหรับ dropdown ตอนลงทะเบียน
+const UPLINE_OPTIONS = [
+  "ยังไม่มีอัพไลน์", "หมู วิสูตร", "นก อรอนงค์", "อ้อ กัญณิชา", "ครีม มัลลิกา", "มิ้น ธาริน",
+  "เจี๊ยบ ศุภวดี", "ฟู จันทร์งาม", "ตุ่ม ทิพย์รัตน์", "นก ปวริศา", "หน่อย กาญจนา", "ป้อม ชุมพล",
+  "ตึ๊ก ธนวัฒน์", "กี๊ ณัชชา", "เคเจ กิตติเดช", "ดอน พสุธร", "ตึ๊ก ปารณีย์", "นุ้ย ภูริตา",
+  "ตาล อังคณา", "ต้อย สุจิตรา", "อเล็กซ์ ธนันท์รัฐ", "สาว ปรีญาพัชร", "บุช ปัญรมณ", "แพร ณิชาภา",
+  "ตุ๊ก แสงแข", "เดี่ยว เด่นอนันท์", "เอ๋ อมรรัตน์", "เต้ย พสิษฐ์", "อูม ศิรัญญา", "จิ๊ก ประดับเดือน",
+  "กุ้ง สุพัตรา", "เล็ก มัณธนสร", "มะ นงลัคขษ์",
+];
 const ROLE_COLORS = {
   guest: "bg-slate-100 text-slate-600",
   scanner: "bg-sky-50 text-sky-600",
@@ -132,15 +141,13 @@ const ROLE_COLORS = {
 function RoleBadge({ role }) {
   return <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[role] || ROLE_COLORS.guest}`}>{ROLE_LABELS[role] || role}</span>;
 }
-// สถานะบัตร: Guest (ไม่เคยมีบัตร Member) / Member สีเขียว=ยังไม่หมดอายุ เหลือง=ใกล้หมด(<=7วัน) แดง=หมดอายุแล้ว
+// สถานะบัตร: Guest เทา (ไม่เคยมีบัตร Member) / Guest แดง (เคยเป็น Member แต่บัตรหมดอายุแล้ว) / Member เขียว=ยังไม่หมดอายุ เหลือง=ใกล้หมด(<=7วัน)
 function MemberStatusBadge({ uid, payments }) {
   const exp = editableMemberPayment(uid, payments)?.expired_date;
   if (!exp) return <span className="text-slate-400 font-medium">Guest</span>;
-  const active = exp > NOW;
+  if (exp <= NOW) return <span className="text-rose-500 font-medium">Guest</span>;
   const daysLeft = Math.max(0, Math.ceil((exp - NOW) / D));
-  let cls = "text-emerald-600";
-  if (!active) cls = "text-rose-500";
-  else if (daysLeft <= 7) cls = "text-amber-600";
+  const cls = daysLeft <= 7 ? "text-amber-600" : "text-emerald-600";
   return <span className={`${cls} font-medium`}>Member</span>;
 }
 
@@ -155,10 +162,10 @@ const ADMIN_MENU = [
 ];
 const canSeeAdminHub = (role) => role !== "guest";
 
-// payment บัตร Member ล่าสุดของ user คนนี้ (ที่อนุมัติแล้ว) — ใช้ทั้งแสดงวันหมดอายุและจัดเรียงรายชื่อ
+// payment บัตร Member ล่าสุดของ user คนนี้ (ที่อนุมัติแล้ว) — ยึดตาม payment ที่อนุมัติล่าสุด ให้ตรงกับ membership บนโปรไฟล์
 function latestMemberPayment(uid, payments) {
   return payments.filter((p) => p.uid === uid && p.status === "Approved" && p.passName === "Member")
-    .sort((a, b) => (b.expired_date || 0) - (a.expired_date || 0))[0];
+    .sort((a, b) => (b.approved_at || b.createdAt || 0) - (a.approved_at || a.createdAt || 0))[0];
 }
 function isActiveMember(uid, payments) {
   const exp = latestMemberPayment(uid, payments)?.expired_date;
@@ -167,7 +174,7 @@ function isActiveMember(uid, payments) {
 // payment บัตร Member ล่าสุด รวมที่หมดอายุไปแล้วด้วย (ต่างจาก latestMemberPayment ที่เอาไว้เช็คว่า active อยู่ไหมเท่านั้น) — ใช้แสดงผล/แก้ไขบัตรเก่าที่หมดอายุ
 function editableMemberPayment(uid, payments) {
   return payments.filter((p) => p.uid === uid && p.passName === "Member" && (p.status === "Approved" || p.status === "Expired"))
-    .sort((a, b) => (b.expired_date || 0) - (a.expired_date || 0))[0];
+    .sort((a, b) => (b.approved_at || b.createdAt || 0) - (a.approved_at || a.createdAt || 0))[0];
 }
 // เรียงคนที่มีรหัส OWxxxx ก่อน (ตามรหัส) ส่วนคนที่ยังไม่มีรหัส (code ว่าง) ต่อท้ายสุด
 function sortMembersByCode(users) {
@@ -377,6 +384,7 @@ function Drawer({ drawer, setDrawer, user, view, go, canBook, adminExpand, setAd
           </button>
         </div>
         <div className="p-2 flex-1 overflow-auto">
+          <DrawerItem icon={CircleUserRound} label="โปรไฟล์ของฉัน" onClick={() => go("profile")} active={view === "profile"} />
           <DrawerItem icon={CalendarCheck} label="หน้าแรก / คลาสที่กำลังมาถึง" onClick={() => go("home")} active={view === "home"} />
           <DrawerItem icon={DollarSign} label="สมัครสมาชิก / ซื้อบัตรเรียน" onClick={() => go("payments")} active={view === "payments"} />
           <DrawerItem icon={CalendarCheck} label="จองคลาสเรียน" onClick={() => (canBook ? go("book") : go("payments"))} />
@@ -537,7 +545,7 @@ function ScanCamera({ onDetect, onClose }) {
 function mapUserDoc(raw) {
   return {
     uid: raw.id,
-    code: (raw.line || "").trim(),
+    code: (raw.code || "").trim(),
     display_name: raw.display_name || "",
     email: raw.email || "",
     phone_number: raw.phone_number || "",
@@ -700,9 +708,15 @@ function App() {
   })), [paymentsRaw, passesById]);
 
   // payment (บัตร Member) ที่หมดอายุตามวันที่แล้วแต่ยังค้าง status: Approved อยู่ → เขียน status: Expired กลับเข้า Firestore จริง
+  // และถ้าใบที่หมดอายุคือใบล่าสุดของ user คนนั้น (ไม่มีบัตร Member ใบอื่นที่ใหม่กว่ามาแทน) ให้เปลี่ยนสถานะ user เป็น Guest ด้วย
   useEffect(() => {
     const stale = payments.filter((p) => p.status === "Approved" && p.expired_date && p.expired_date <= NOW);
-    stale.forEach((p) => { db.collection("payments").doc(p.id).update({ status: "Expired" }).catch(() => {}); });
+    stale.forEach(async (p) => {
+      await db.collection("payments").doc(p.id).update({ status: "Expired" }).catch(() => {});
+      if (p.passName === "Member" && latestMemberPayment(p.uid, payments)?.id === p.id) {
+        await db.collection("users").doc(p.uid).update({ memberStatus: "Guest" }).catch(() => {});
+      }
+    });
   }, [payments]);
 
   const bookings = useMemo(() => bookingsRaw.map((b) => {
@@ -721,6 +735,13 @@ function App() {
       checkinVia: sess?.classType === "Online" ? "zoom" : "scan",
     };
   }), [bookingsRaw, sessionsById]);
+
+  // booking ที่คลาสจบไปแล้ว (endTime ผ่านไปแล้ว) แต่ยังไม่ได้เช็คอิน → เขียน statusBooking: Expired กลับเข้า Firestore จริง
+  useEffect(() => {
+    const stale = bookings.filter((b) => b.bookingStatus !== "Used" && b.bookingStatus !== "Expired"
+      && classes.find((c) => c.id === b.classId)?.endTime <= NOW);
+    stale.forEach((b) => { db.collection("bookings").doc(b.id).update({ statusBooking: "Expired" }).catch(() => {}); });
+  }, [bookings, classes]);
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
   const go = (v) => { setView(v); setDrawer(false); setBookSel(null); setAttnDetail(null); setCourseEdit(null); setCourseDeleteConfirm(null); setPassEdit(null); setSlipPreview(null); setMemberOpenUid(null); setMemberFilter(null); };
@@ -761,6 +782,7 @@ function App() {
   if (fbUser === undefined) return <div className="min-h-screen grid place-items-center text-slate-500 text-sm">กำลังโหลด…</div>;
   if (!fbUser) return <Login />;
   if (!user) return <div className="min-h-screen grid place-items-center text-slate-500 text-sm">กำลังโหลดข้อมูลผู้ใช้…</div>;
+  if (myProfileRaw.profileComplete === false) return <RegisterStep2 profile={myProfileRaw} />;
 
   const nearest = classes.filter((c) => c.active && c.endTime > NOW).sort((a, b) => a.startTime - b.startTime)[0];
 
@@ -782,9 +804,6 @@ function App() {
   const buyPass = async (passName) => {
     const pass = PASSES[passName];
     if (!pass) return;
-    if (!user.code) {
-      await db.collection("users").doc(user.uid).update({ line: nextMemberCode() });
-    }
     await db.collection("payments").add({
       uid: user.uid,
       user_ref: db.doc(`users/${user.uid}`),
@@ -808,7 +827,12 @@ function App() {
       approved_by: user.uid,
       expired_date: expired_date ? firebase.firestore.Timestamp.fromMillis(expired_date) : null,
     });
-    await db.collection("users").doc(p.uid).update({ memberStatus: "Member" });
+    if (p.passName === "Member") {
+      const owner = users.find((u) => u.uid === p.uid);
+      const userUpdate = { memberStatus: "Member" };
+      if (!owner?.code) userUpdate.code = nextMemberCode();
+      await db.collection("users").doc(p.uid).update(userUpdate);
+    }
     // booking ที่จองไว้ด้วย payment นี้ตอนยัง Pending อยู่ → อัปเดตเป็น Approved ด้วย
     const relatedBookings = bookingsRaw.filter((b) => b.payments_ref?.id === payId && b.statusBooking === "Pending");
     await Promise.all(relatedBookings.map((b) => db.collection("bookings").doc(b.id).update({ statusBooking: "Approved" })));
@@ -1296,6 +1320,10 @@ function App() {
     );
   }
 
+  /* ===== โปรไฟล์ของฉัน — แก้ไข ชื่อ/เบอร์โทร/อีเมล/รูป ===== */
+  if (view === "profile")
+    return <ProfileEditForm user={user} onBack={() => go("home")} showToast={showToast} />;
+
   /* ===== ADMIN: SLIP APPROVAL ===== */
   if (view === "admin:slip") {
     const pending = payments.filter((p) => p.status === "Pending");
@@ -1671,6 +1699,72 @@ function App() {
   return <AppCtx.Provider value={{ toast, drawerProps }}>{page}</AppCtx.Provider>;
 }
 
+/* ---------- โปรไฟล์ของฉัน (แก้ไขชื่อ/เบอร์โทร/อีเมล/รูป) ---------- */
+function ProfileEditForm({ user, onBack, showToast }) {
+  const [name, setName] = useState(user.display_name || "");
+  const [phone, setPhone] = useState(user.phone_number || "");
+  const [email, setEmail] = useState(user.email || "");
+  const [photo, setPhoto] = useState(user.photo_url || "");
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const handlePhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadFile(file, `users/${user.uid}/uploads/${Date.now()}_${file.name}`);
+      setPhoto(url);
+    } catch {
+      setErr("อัปโหลดรูปไม่สำเร็จ");
+    }
+    setUploading(false);
+  };
+
+  const save = async () => {
+    if (!name.trim() || !phone.trim() || !email.trim()) { setErr("กรุณากรอกให้ครบทุกช่อง"); return; }
+    setErr("");
+    setSaving(true);
+    try {
+      await db.collection("users").doc(user.uid).update({
+        display_name: name.trim(), phone_number: phone.trim(), email: email.trim(), photo_url: photo,
+      });
+      showToast("บันทึกโปรไฟล์แล้ว");
+      onBack();
+    } catch (e) {
+      setErr("บันทึกไม่สำเร็จ กรุณาลองใหม่");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Shell>
+      <TopBar title="โปรไฟล์ของฉัน" onBack={onBack} />
+      <div className="p-4 space-y-3">
+        <label className="block cursor-pointer mx-auto w-fit">
+          <input type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+          <div className="relative group">
+            <img src={photo} alt="" className="w-24 h-24 rounded-2xl object-cover ring-2 ring-orange-100" />
+            <div className={`absolute inset-0 rounded-2xl bg-black/50 transition grid place-items-center text-white text-[11px] text-center px-1 ${uploading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+              {uploading ? "กำลังอัปโหลด…" : "แตะเพื่อเปลี่ยนรูป"}
+            </div>
+          </div>
+        </label>
+        <Field label="ชื่อ-นามสกุล" value={name} onChange={setName} />
+        <Field label="เบอร์โทรศัพท์" value={phone} onChange={(v) => setPhone(v.replace(/\D/g, "").slice(0, 10))} />
+        <Field label="อีเมล" value={email} onChange={setEmail} />
+        {err && <div className="text-xs text-rose-500">{err}</div>}
+        <button onClick={save} disabled={saving || uploading}
+          className="w-full text-white text-base font-semibold py-4 rounded-xl active:scale-[.98] transition disabled:opacity-50"
+          style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>
+          {saving ? "กำลังบันทึก…" : "บันทึก"}
+        </button>
+      </div>
+    </Shell>
+  );
+}
+
 /* ---------- Class Form (add / edit) ---------- */
 // เดิม L ถูกประกาศซ้ำใน ClassForm ทุก render ทำให้ input ข้างในโดน remount ทุกครั้งที่พิมพ์ (คีย์บอร์ดหลุด/พิมพ์ได้ทีละตัว)
 function FormLabel({ label, children }) {
@@ -1866,6 +1960,7 @@ function MemberAdmin({ users, payments, onBack, Shell, TopBar }) {
       phone_number: form.phone_number,
       role: form.role.charAt(0).toUpperCase() + form.role.slice(1),
       memberStatus: form.memberStatus,
+      code: form.code.trim(),
     });
     if (form.payId) {
       const ms = fromDateInputEndOfDay(form.expDate);
@@ -1923,6 +2018,7 @@ function MemberAdmin({ users, payments, onBack, Shell, TopBar }) {
                       <tr className="border-b border-slate-200 last:border-0 bg-slate-50">
                         <td colSpan={4} className="px-3 py-3 whitespace-normal">
                           <div className="space-y-2 max-w-sm">
+                            <Field label="รหัส OWxxxx" value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
                             <Field label="ชื่อ" value={form.display_name} onChange={(v) => setForm({ ...form, display_name: v })} />
                             <Field label="อีเมล" value={form.email} onChange={(v) => setForm({ ...form, email: v })} />
                             <Field label="เบอร์โทร" value={form.phone_number} onChange={(v) => setForm({ ...form, phone_number: v })} />
@@ -1991,6 +2087,91 @@ function mapAuthError(e) {
   return e?.message || "เกิดข้อผิดพลาด กรุณาลองใหม่";
 }
 
+/* ---------- ลงทะเบียนขั้นที่ 2 — กรอกหลัง login แล้ว ---------- */
+function RegisterStep2({ profile }) {
+  const [age, setAge] = useState("");
+  const [phone, setPhone] = useState("");
+  const [upline, setUpline] = useState("");
+  const [photoPreview, setPhotoPreview] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const handlePhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadFile(file, `users/${profile.id}/uploads/${Date.now()}_${file.name}`);
+      setPhotoPreview(url);
+    } catch {
+      setErr("อัปโหลดรูปไม่สำเร็จ");
+    }
+    setUploading(false);
+  };
+
+  const canSubmit = age.trim() && phone.length === 10 && upline && photoPreview && !busy && !uploading;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setErr("");
+    setBusy(true);
+    try {
+      await db.collection("users").doc(profile.id).update({
+        age: Number(age),
+        phone_number: phone.trim(),
+        uplineList: upline,
+        photo_url: photoPreview,
+        profileComplete: true,
+      });
+    } catch (e) {
+      setErr("บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex justify-center">
+      <div className="w-full max-w-[440px] px-6 py-10 flex flex-col justify-center">
+        <div className="text-center mb-6">
+          <OwnerLogo className="w-16 h-16 mx-auto" />
+          <h1 className="text-xl font-bold text-slate-800 mt-3">กรอกข้อมูลเพิ่มเติม</h1>
+          <p className="text-sm text-slate-500 mt-1">กรอกให้ครบทุกช่องเพื่อเริ่มใช้งาน</p>
+        </div>
+
+        <label className="block cursor-pointer mx-auto mb-4">
+          <input type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+          {photoPreview ? (
+            <img src={photoPreview} alt="" className="w-24 h-24 rounded-2xl object-cover mx-auto ring-2 ring-orange-100" />
+          ) : (
+            <div className="w-24 h-24 rounded-2xl bg-white border-2 border-dashed border-slate-200 grid place-items-center mx-auto text-slate-400">
+              {uploading ? <Loader2 size={22} className="animate-spin" /> : <Upload size={22} />}
+            </div>
+          )}
+          <div className="text-center text-xs text-slate-500 mt-1.5">{uploading ? "กำลังอัปโหลด…" : "แตะเพื่ออัปโหลดรูปตัวเอง"}</div>
+        </label>
+
+        <input value={age} onChange={(e) => setAge(e.target.value.replace(/\D/g, ""))} placeholder="อายุ" inputMode="numeric"
+          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-base mb-3 focus:outline-none focus:border-orange-300" />
+        <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="เบอร์โทรศัพท์ (10 หลัก)" type="tel" inputMode="numeric"
+          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-base mb-3 focus:outline-none focus:border-orange-300" />
+        <select value={upline} onChange={(e) => setUpline(e.target.value)}
+          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3.5 text-base mb-3 focus:outline-none focus:border-orange-300">
+          <option value="">เลือกอัพไลน์</option>
+          {UPLINE_OPTIONS.map((nm) => <option key={nm} value={nm}>{nm}</option>)}
+        </select>
+
+        {err && <div className="text-xs text-rose-500 mb-2">{err}</div>}
+        <button onClick={submit} disabled={!canSubmit}
+          className="w-full text-white text-base font-semibold py-4 rounded-xl active:scale-[.98] transition disabled:opacity-50"
+          style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>
+          {busy ? "กำลังบันทึก…" : "เริ่มใช้งาน"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Login() {
   const [mode, setMode] = useState("signin"); // signin | forgot | register
   const [name, setName] = useState("");
@@ -2016,13 +2197,17 @@ function Login() {
       } else if (mode === "register") {
         const cred = await auth.createUserWithEmailAndPassword(email.trim(), password);
         await db.collection("users").doc(cred.user.uid).set({
+          uid: cred.user.uid,
           display_name: name.trim() || email.trim(),
           email: email.trim(),
           phone_number: "",
           role: "Guest",
           memberStatus: "Guest",
           photo_url: "",
-          line: "",
+          code: "",
+          age: null,
+          uplineList: "",
+          profileComplete: false,
           created_time: firebase.firestore.FieldValue.serverTimestamp(),
         });
       }
