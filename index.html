@@ -900,6 +900,13 @@ function App() {
     let classId = id;
     if (id) {
       await db.collection("classes").doc(id).update(payload);
+      // เลื่อนเวลาคลาสออกไปในอนาคต → booking ที่เคยเช็คอิน/หมดเวลาไปแล้ว ไม่ควรค้างสถานะนั้น ย้อนกลับเป็น Approved ให้เช็คอินใหม่ได้
+      if (data.endTime > NOW) {
+        const stale = bookingsRaw.filter((b) => b.classes_ref?.id === id && (b.statusBooking === "Used" || b.statusBooking === "Expired"));
+        await Promise.all(stale.map((b) => db.collection("bookings").doc(b.id).update({
+          statusBooking: "Approved", checkedin_at: null, checkedin_by: null,
+        })));
+      }
     } else {
       const ref = await db.collection("classes").add(payload);
       classId = ref.id;
@@ -1419,14 +1426,24 @@ function App() {
 
   /* ===== ADMIN: ATTENDANCE — item 5 ===== */
   if (view === "admin:attendance") {
+    // ถ้า user คนเดียวจองคลาสเดียวกันซ้ำหลายครั้ง (ข้อมูลเก่าก่อนมีการกันจองซ้ำ) ให้นับแค่ครั้งล่าสุดครั้งเดียว
+    const dedupeLatestPerUser = (arr) => {
+      const map = new Map();
+      arr.forEach((b) => {
+        const prev = map.get(b.uid);
+        if (!prev || (b.createdAt || 0) > (prev.createdAt || 0)) map.set(b.uid, b);
+      });
+      return [...map.values()];
+    };
+
     const perClass = classes.map((c) => {
-      const bk = bookings.filter((b) => b.classId === c.id);
+      const bk = dedupeLatestPerUser(bookings.filter((b) => b.classId === c.id));
       return { cls: c, bk };
     }).sort((a, b) => b.cls.startTime - a.cls.startTime);
 
     const detailRows = attnDetail
-      ? bookings.filter((b) => b.classId === attnDetail.classId && b.sessionType === attnDetail.session
-          && (attnDetail.kind === "booked" || b.bookingStatus === "Used"))
+      ? dedupeLatestPerUser(bookings.filter((b) => b.classId === attnDetail.classId))
+          .filter((b) => b.sessionType === attnDetail.session && (attnDetail.kind === "booked" || b.bookingStatus === "Used"))
           .map((b) => ({ ...b, u: users.find((x) => x.uid === b.uid) }))
       : [];
 
