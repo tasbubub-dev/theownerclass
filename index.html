@@ -737,11 +737,18 @@ function App() {
   }), [bookingsRaw, sessionsById]);
 
   // booking ที่คลาสจบไปแล้ว (endTime ผ่านไปแล้ว) แต่ยังไม่ได้เช็คอิน → เขียน statusBooking: Expired กลับเข้า Firestore จริง
+  // ถ้าจองด้วยบัตร One ที่อนุมัติแล้วและไม่ได้มาเช็คอินตามเวลา ให้บัตรนั้นหมดอายุไปด้วย (เหมือนกรณีเช็คอินแล้วใน checkIn())
   useEffect(() => {
     const stale = bookings.filter((b) => b.bookingStatus !== "Used" && b.bookingStatus !== "Expired"
       && classes.find((c) => c.id === b.classId)?.endTime <= NOW);
-    stale.forEach((b) => { db.collection("bookings").doc(b.id).update({ statusBooking: "Expired" }).catch(() => {}); });
-  }, [bookings, classes]);
+    stale.forEach(async (b) => {
+      await db.collection("bookings").doc(b.id).update({ statusBooking: "Expired" }).catch(() => {});
+      const pay = payments.find((p) => p.id === b.paymentId);
+      if (pay?.passName === "One" && pay.status === "Approved") {
+        await db.collection("payments").doc(pay.id).update({ status: "Expired" }).catch(() => {});
+      }
+    });
+  }, [bookings, classes, payments]);
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
   const go = (v) => { setView(v); setDrawer(false); setBookSel(null); setAttnDetail(null); setCourseEdit(null); setCourseDeleteConfirm(null); setPassEdit(null); setSlipPreview(null); setMemberOpenUid(null); setMemberFilter(null); };
@@ -804,6 +811,11 @@ function App() {
   const buyPass = async (passName) => {
     const pass = PASSES[passName];
     if (!pass) return;
+    if (membership.active || membership.pending) {
+      showToast(membership.pending ? "อยู่ระหว่างรออนุมัติ" : "มีบัตรอยู่แล้ว");
+      go("payments");
+      return;
+    }
     await db.collection("payments").add({
       uid: user.uid,
       user_ref: db.doc(`users/${user.uid}`),
@@ -855,13 +867,11 @@ function App() {
       users_ref: db.doc(`users/${user.uid}`),
       payments_ref: membership.payment ? db.doc(`payments/${membership.payment.id}`) : null,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      statusBooking: membership.active ? "Approved" : "Pending",
+      statusBooking: (membership.active || cls.is_free_booking) ? "Approved" : "Pending",
     });
     await db.collection("sessions").doc(sessionId).update({
       booked: firebase.firestore.FieldValue.increment(1),
     });
-    if (membership.type === "One" && membership.payment)
-      await db.collection("payments").doc(membership.payment.id).update({ status: "Expired" });
     showToast(`จองคลาส (${sessionType}) สำเร็จ`);
     go("mybookings");
   };
@@ -1008,7 +1018,7 @@ function App() {
 
   /* ===== PAYMENTS history ===== */
   if (view === "payments") {
-    const mine = payments.filter((p) => p.uid === user.uid).sort((a, b) => b.createdAt - a.createdAt);
+    const mine = payments.filter((p) => p.uid === user.uid).sort((a, b) => b.createdAt - a.createdAt).slice(0, 1);
     return (
       <Shell>
         <TopBar title="สมัครสมาชิก / ซื้อบัตร" onBack={() => go("home")} />
@@ -1023,8 +1033,8 @@ function App() {
               <CheckCircle2 size={16} /> มีบัตรใช้งานอยู่ · ซื้อใหม่ได้เมื่อบัตรหมดอายุ
             </div>
           )}
-          <div className="text-xs font-medium text-slate-500 px-1">ประวัติการซื้อบัตร</div>
-          {mine.length === 0 && <Empty icon={DollarSign} text="ยังไม่มีประวัติการซื้อบัตร" />}
+          <div className="text-xs font-medium text-slate-500 px-1">บัตรล่าสุด</div>
+          {mine.length === 0 && <Empty icon={DollarSign} text="ยังไม่มีการซื้อบัตร" />}
           {mine.map((p) => {
             const st = PAY_STATUS_STYLE[paymentDisplayStatus(p)];
             return (
@@ -1062,11 +1072,19 @@ function App() {
       <Shell>
         <TopBar title="ซื้อบัตรเรียน" onBack={() => go("payments")} />
         <div className="p-4 space-y-4">
-          {Object.values(PASSES).filter((p) => p.active).map((p) => (
+          {membership.pending && (
+            <div className="bg-amber-50 text-amber-700 text-xs rounded-xl px-3 py-2 flex items-center gap-2">
+              <Loader2 size={14} className="animate-spin" /> บัตรที่ซื้อไว้อยู่ระหว่างรออนุมัติ — ยังซื้อบัตรใหม่ไม่ได้จนกว่าจะอนุมัติหรือถูกปฏิเสธ
+            </div>
+          )}
+          {Object.values(PASSES).filter((p) => p.active).map((p) => {
+            const blocked = membership.active || membership.pending;
+            const blockedLabel = membership.pending ? "อยู่ระหว่างรออนุมัติ" : "มีบัตรอยู่แล้ว";
+            return (
             <div key={p.name}
-              onClick={() => !membership.active && go("pay:" + p.name)}
+              onClick={() => !blocked && go("pay:" + p.name)}
               className={`bg-white rounded-2xl p-4 border-2 shadow-lg -translate-y-0.5 transition-all duration-150
-                ${membership.active
+                ${blocked
                   ? "opacity-50 border-slate-300"
                   : "border-slate-300 cursor-pointer active:translate-y-0.5 active:shadow-none active:border-orange-500"}`}>
               <div className="flex items-start justify-between gap-2">
@@ -1082,13 +1100,14 @@ function App() {
                   : <span className="text-[11px] bg-sky-50 text-sky-600 px-2 py-0.5 rounded-full shrink-0">จอง 1 ครั้ง</span>}
               </div>
               {p.pass_image && <img src={p.pass_image} alt={p.name} className="mt-2 w-16 h-16 rounded-lg object-cover" />}
-              <button onClick={(e) => { e.stopPropagation(); go("pay:" + p.name); }} disabled={membership.active}
+              <button onClick={(e) => { e.stopPropagation(); go("pay:" + p.name); }} disabled={blocked}
                 className="mt-3 w-full text-white text-sm font-medium py-2.5 rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-[.98] transition"
                 style={{ background: BRAND }}>
-                {membership.active ? "มีบัตรอยู่แล้ว" : <>เลือกบัตรนี้ <ArrowRight size={14} /></>}
+                {blocked ? blockedLabel : <>เลือกบัตรนี้ <ArrowRight size={14} /></>}
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       </Shell>
     );
@@ -1139,7 +1158,9 @@ function App() {
   if (view === "book") {
     if (!nearest) return <Shell><TopBar title="จองคลาสเรียน" onBack={() => go("home")} /><Empty icon={CalendarCheck} text="ไม่มีคลาสที่กำลังจะมาถึง" /></Shell>;
     const myBk = bookings.find((b) => b.uid === user.uid && b.classId === nearest.id);
-    const canPick = (s) => nearest.sessions[s].capacity > 0 && nearest.sessions[s].booked < nearest.sessions[s].capacity;
+    // นับจำนวนคนจองจริง (คนละคนกัน) ไม่ใช่จำนวนใบจอง เผื่อมีคนจองซ้ำหลายใบจากบั๊กเดิม
+    const sessionBooked = (s) => new Set(bookings.filter((b) => b.classId === nearest.id && b.sessionType === s).map((b) => b.uid)).size;
+    const canPick = (s) => nearest.sessions[s].capacity > 0 && sessionBooked(s) < nearest.sessions[s].capacity;
     return (
       <Shell>
         <TopBar title="จองคลาสเรียน" onBack={() => go("home")} />
@@ -1200,8 +1221,8 @@ function App() {
                       ) : (
                         <>
                           <div className="flex items-center justify-between text-xs mt-1">
-                            <span className={nearest.sessions[s].booked >= nearest.sessions[s].capacity ? "text-rose-500 font-medium" : "text-slate-600"}>
-                              {nearest.sessions[s].booked}/{nearest.sessions[s].capacity} ที่นั่ง
+                            <span className={sessionBooked(s) >= nearest.sessions[s].capacity ? "text-rose-500 font-medium" : "text-slate-600"}>
+                              {sessionBooked(s)}/{nearest.sessions[s].capacity} ที่นั่ง
                             </span>
                             <span className={ok ? "text-emerald-600" : "text-rose-500"}>
                               {ok ? "ว่าง" : "เต็ม"}
@@ -1210,8 +1231,8 @@ function App() {
                           <div className="mt-1.5 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full transition-all"
                               style={{
-                                width: `${Math.min(100, (nearest.sessions[s].booked / nearest.sessions[s].capacity) * 100)}%`,
-                                background: nearest.sessions[s].booked >= nearest.sessions[s].capacity ? "#f43f5e" : s === "Onsite" ? BRAND : "#0284c7"
+                                width: `${Math.min(100, (sessionBooked(s) / nearest.sessions[s].capacity) * 100)}%`,
+                                background: sessionBooked(s) >= nearest.sessions[s].capacity ? "#f43f5e" : s === "Onsite" ? BRAND : "#0284c7"
                               }} />
                           </div>
                         </>
