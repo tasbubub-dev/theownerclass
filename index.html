@@ -813,12 +813,13 @@ function App() {
   const latestBooking = upcomingMine[0] || myBookings.sort((a, b) => (b.cls?.startTime || 0) - (a.cls?.startTime || 0))[0];
 
   /* ---- ACTIONS (เขียนขึ้น Firestore จริง) ---- */
+  const MEMBER_CODE_FLOOR = 94; // รหัสสุดท้ายที่เคยลงเป็น member คือ OW0094 — รหัสถัดไปต้องไม่ต่ำกว่านี้แม้ข้อมูล users ปัจจุบันจะไม่มีรหัสสูงสุดที่ตรง
   const nextMemberCode = () => {
     const nums = users
       .map((u) => (u.code.match(/^OW(\d+)$/i) || [])[1])
       .filter(Boolean)
       .map(Number);
-    const next = (nums.length ? Math.max(...nums) : 0) + 1;
+    const next = Math.max(MEMBER_CODE_FLOOR, ...nums) + 1;
     return "OW" + String(next).padStart(4, "0");
   };
   const buyPass = async (passName) => {
