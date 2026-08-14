@@ -202,6 +202,7 @@ const BOOK_STATUS_STYLE = {
   Approved: { label: "พร้อมเข้าเรียน", cls: "bg-emerald-50 text-emerald-600" },
   Used: { label: "เช็คอินแล้ว", cls: "bg-sky-50 text-sky-600" },
   Expired: { label: "หมดเวลา", cls: "bg-rose-50 text-rose-500" },
+  Rejected: { label: "สลิปถูกปฏิเสธ", cls: "bg-rose-50 text-rose-500" },
 };
 
 /* ---------- UI PRIMITIVES ---------- */
@@ -734,6 +735,20 @@ function App() {
     };
   }), [bookingsRaw, sessionsById]);
 
+  // booking ที่ค้างสถานะ Pending อยู่ แต่ payment ที่ผูกไว้ถูกอนุมัติ/ปฏิเสธไปแล้ว (เช่น ก่อนหน้านี้ confirmReject ยังไม่ sync booking ให้) → แก้สถานะ booking ให้ตรงกับ payment จริงย้อนหลัง
+  useEffect(() => {
+    const mismatched = bookings.filter((b) => b.bookingStatus === "Pending" && b.paymentId);
+    mismatched.forEach(async (b) => {
+      const pay = payments.find((p) => p.id === b.paymentId);
+      if (!pay) return;
+      if (pay.status === "Approved") {
+        await db.collection("bookings").doc(b.id).update({ statusBooking: "Approved" }).catch(() => {});
+      } else if (pay.status === "Rejected") {
+        await db.collection("bookings").doc(b.id).update({ statusBooking: "Rejected" }).catch(() => {});
+      }
+    });
+  }, [bookings, payments]);
+
   // booking ที่คลาสจบไปแล้ว (endTime ผ่านไปแล้ว) แต่ยังไม่ได้เช็คอิน → เขียน statusBooking: Expired กลับเข้า Firestore จริง
   // ถ้าจองด้วยบัตร One ที่อนุมัติแล้วและไม่ได้มาเช็คอินตามเวลา ให้บัตรนั้นหมดอายุไปด้วย (เหมือนกรณีเช็คอินแล้วใน checkIn())
   useEffect(() => {
@@ -856,6 +871,9 @@ function App() {
     await db.collection("payments").doc(rejecting).update({
       status: "Rejected", rejected_note: rejectNote.trim() || "ไม่ระบุเหตุผล",
     });
+    // booking ที่จองไว้ด้วย payment นี้ตอนยัง Pending อยู่ → sync เป็น Rejected ด้วย ไม่งั้นจะค้าง "รออนุมัติ" ถาวรทั้งที่สลิปถูกปฏิเสธไปแล้ว
+    const relatedBookings = bookingsRaw.filter((b) => b.payments_ref?.id === rejecting && b.statusBooking === "Pending");
+    await Promise.all(relatedBookings.map((b) => db.collection("bookings").doc(b.id).update({ statusBooking: "Rejected" })));
     setRejecting(null); setRejectNote("");
     showToast("ปฏิเสธสลิปแล้ว");
   };
@@ -894,6 +912,7 @@ function App() {
   // สถานะที่แสดงจริง: เช็คอินแล้ว > (หมดเวลาเฉพาะเมื่อคลาสจบ) > อนุมัติแล้ว=พร้อมเข้าเรียน > รออนุมัติ
   const effStatus = (b) => {
     if (b.bookingStatus === "Used") return "Used";
+    if (b.bookingStatus === "Rejected") return "Rejected";
     const cls = classes.find((c) => c.id === b.classId);
     if (cls && cls.endTime < NOW) return "Expired";
     const pay = payments.find((p) => p.id === b.paymentId);
