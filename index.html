@@ -84,7 +84,7 @@ const INK = "#1b2233";
 /* ---------- ข้อมูลบัญชีรับโอน (ยังไม่มี collection ใน Firestore ให้เชื่อม — คงไว้แบบ static) ---------- */
 
 const ACCOUNT = {
-  qrcode_payment: "https://firebasestorage.googleapis.com/v0/b/class-booking-theowner.firebasestorage.app/o/cms_uploads%2Fpayment_qr.jpg?alt=media&token=b56ceeb1-7620-484e-a313-3033be5ad288",
+  qrcode_payment: "icons/payment_qr.jpg",
 };
 
 /* ---------- HELPERS ---------- */
@@ -814,6 +814,10 @@ function App() {
       go("payments");
       return;
     }
+    if (!slipPreview) {
+      showToast("กรุณาแนบสลิปการโอนก่อนส่ง");
+      return;
+    }
     await db.collection("payments").add({
       uid: user.uid,
       user_ref: db.doc(`users/${user.uid}`),
@@ -1141,9 +1145,14 @@ function App() {
               )}
             </label>
           </div>
-          <button onClick={() => buyPass(passName)} className="w-full text-white text-base font-semibold py-4 rounded-xl active:scale-[.98] transition" style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>
+          <button onClick={() => buyPass(passName)} disabled={!slipPreview || slipUploading}
+            className="w-full text-white text-base font-semibold py-4 rounded-xl active:scale-[.98] transition disabled:opacity-50 disabled:active:scale-100"
+            style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>
             ส่งสลิป · รออนุมัติ
           </button>
+          {!slipPreview && !slipUploading && (
+            <p className="text-xs text-rose-500 text-center -mt-2">กรุณาแนบสลิปการโอนก่อนกดส่ง</p>
+          )}
         </div>
       </Shell>
     );
@@ -1367,8 +1376,13 @@ function App() {
                   </div>
                   <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Pending</span>
                 </div>
-                {p.slip_url && (p.slip_url.startsWith("http") || p.slip_url.startsWith("data:")) && (
-                  <img src={p.slip_url} alt="slip" className="mt-3 w-28 h-28 object-cover rounded-lg" />
+                {p.slip_url && (p.slip_url.startsWith("http") || p.slip_url.startsWith("data:")) ? (
+                  <div className="mt-3">
+                    <img src={p.slip_url} alt="slip" className="w-full max-w-[240px] mx-auto aspect-[3/4] object-cover rounded-xl border border-slate-200" />
+                    <p className="text-[11px] text-slate-400 text-center mt-1">แตะรูปเพื่อดูขนาดเต็มก่อนอนุมัติ</p>
+                  </div>
+                ) : (
+                  <div className="mt-3 text-xs bg-amber-50 text-amber-600 rounded-lg px-3 py-2">ไม่มีสลิปแนบมา</div>
                 )}
                 {rejecting === p.id ? (
                   <div className="mt-3 space-y-2">
