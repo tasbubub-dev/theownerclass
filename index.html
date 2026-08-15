@@ -1318,6 +1318,12 @@ function App() {
                 <CheckCircle2 size={40} />
                 <div className="mt-2 font-medium">เช็คอินแล้ว</div>
                 <div className="text-xs">{thDateTime(b.checkedInAt)} · {b.checkinVia === "scan" ? "สแกน QR" : "เข้า Zoom"}</div>
+                {isOnline && cls && cls.endTime > NOW && (
+                  <a href={cls.meeting_url} target="_blank" rel="noreferrer"
+                    className="mt-4 w-full max-w-[220px] text-white text-sm font-semibold py-3 rounded-xl bg-sky-600 active:scale-[.98] transition inline-flex items-center justify-center gap-1.5">
+                    <Video size={16} /> เข้าห้องเรียนออนไลน์
+                  </a>
+                )}
               </div>
             ) : es === "Expired" ? (
               <div className="h-full bg-rose-50 text-rose-600 rounded-2xl p-5 text-center flex flex-col items-center justify-center">
