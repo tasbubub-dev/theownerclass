@@ -797,7 +797,13 @@ function App() {
   }, [user, payments]);
 
   const canBook = membership.active || membership.pending;
-  const canBookClass = (cls) => !!cls?.is_free_booking || canBook;
+  // ถ้าอายุสมาชิกจะหมดก่อนวันเริ่มคลาสนี้ (แม้วันนี้ยังไม่หมดอายุ) ให้ถือว่าจองคลาสนี้ไม่ได้ ต้องไปซื้อบัตรต่ออายุก่อน
+  const canBookClass = (cls) => {
+    if (cls?.is_free_booking) return true;
+    if (!canBook) return false;
+    if (membership.type === "Member" && membership.expired_date != null && cls?.startTime > membership.expired_date) return false;
+    return true;
+  };
 
   if (fbUser === undefined) return <div className="min-h-screen grid place-items-center text-slate-500 text-sm">กำลังโหลด…</div>;
   if (!fbUser) return <Login />;
@@ -805,6 +811,10 @@ function App() {
   if (myProfileRaw.profileComplete === false) return <RegisterStep2 profile={myProfileRaw} />;
 
   const nearest = classes.filter((c) => c.active && c.endTime > NOW).sort((a, b) => a.startTime - b.startTime)[0];
+
+  // อนุญาตให้ซื้อบัตรต่ออายุล่วงหน้าได้ (ทั้งที่บัตรเดิมยังไม่หมดอายุ) เมื่อใกล้หมดอายุ (เหลือ <=7 วัน สีส้ม) หรือคลาสถัดไปจะเริ่มหลังบัตรหมดอายุไปแล้ว
+  const canRenewEarly = membership.type === "Member" && membership.active
+    && (membership.daysLeft <= 7 || (nearest && nearest.startTime > membership.expired_date));
 
   // item 1 — booking ล่าสุดของ user (ใกล้ถึงที่สุด, ถ้าไม่มีในอนาคตเอาอันล่าสุดสุด)
   const myBookings = bookings.filter((b) => b.uid === user.uid)
@@ -825,7 +835,7 @@ function App() {
   const buyPass = async (passName) => {
     const pass = PASSES[passName];
     if (!pass) return;
-    if (membership.active || membership.pending) {
+    if (membership.pending || (membership.active && !canRenewEarly)) {
       showToast(membership.pending ? "อยู่ระหว่างรออนุมัติ" : "มีบัตรอยู่แล้ว");
       go("payments");
       return;
@@ -850,7 +860,10 @@ function App() {
     const p = payments.find((x) => x.id === payId);
     if (!p) return;
     const pass = PASSES[p.passName];
-    const expired_date = pass?.duration_days > 0 ? Date.now() + pass.duration_days * D : null;
+    // ถ้าบัตร Member ใบก่อนหน้ายังไม่หมดอายุจริง (ซื้อต่ออายุล่วงหน้า) ให้นับอายุใหม่ต่อจากวันหมดอายุเดิม ไม่ใช่นับจากวันนี้ — ถ้าซื้อหลังบัตรเดิมหมดอายุไปแล้ว ให้นับจากวันที่กดอนุมัตินี้แทน
+    const prior = editableMemberPayment(p.uid, payments);
+    const base = prior?.expired_date && prior.expired_date > Date.now() ? prior.expired_date : Date.now();
+    const expired_date = pass?.duration_days > 0 ? base + pass.duration_days * D : null;
     await db.collection("payments").doc(payId).update({
       status: "Approved",
       approved_at: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1045,10 +1058,10 @@ function App() {
       <Shell>
         <TopBar title="สมัครสมาชิก / ซื้อบัตร" onBack={() => go("home")} />
         <div className="p-4 space-y-4">
-          {!membership.active ? (
+          {!membership.active || canRenewEarly ? (
             <button onClick={() => go("buypass")}
               className="w-full text-white text-base font-semibold py-4 rounded-xl flex items-center justify-center gap-1.5 active:scale-[.98] transition" style={{ background: BRAND, boxShadow: "0 10px 24px -8px rgba(0,0,0,.35)" }}>
-              <DollarSign size={18} /> ซื้อบัตรใหม่
+              <DollarSign size={18} /> {canRenewEarly ? "ต่ออายุบัตร" : "ซื้อบัตรใหม่"}
             </button>
           ) : (
             <div className="bg-emerald-50 text-emerald-700 text-sm rounded-xl px-4 py-3 flex items-center gap-2">
@@ -1100,7 +1113,7 @@ function App() {
             </div>
           )}
           {Object.values(PASSES).filter((p) => p.active).map((p) => {
-            const blocked = membership.active || membership.pending;
+            const blocked = membership.pending || (membership.active && !canRenewEarly);
             const blockedLabel = membership.pending ? "อยู่ระหว่างรออนุมัติ" : "มีบัตรอยู่แล้ว";
             return (
             <div key={p.name}
