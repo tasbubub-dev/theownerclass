@@ -45,7 +45,7 @@ const {
   QrCode, FolderKanban, LogOut, Clock, MapPin, Video, CheckCircle2, XCircle,
   Upload, ShieldCheck, ScanLine, Users, UserCog, BookOpen, FileCheck,
   ClipboardList, AlertTriangle, Loader2, CircleUserRound, Link2, Ticket,
-  ArrowRight, Pencil, Save, Camera, Circle, CheckCircle, Eye, EyeOff,
+  ArrowRight, Pencil, Save, Camera, Circle, CheckCircle, Eye, EyeOff, Bell,
 } = LucideReact;
 const { useState, useMemo, useRef, useEffect } = React;
 
@@ -440,7 +440,7 @@ function Lightbox() {
 }
 
 function Shell({ children }) {
-  const { toast, drawerProps } = React.useContext(AppCtx);
+  const { toast, drawerProps, pendingAlert } = React.useContext(AppCtx);
   return (
     <div className="min-h-screen bg-slate-50 flex justify-center">
       <style>{`
@@ -455,6 +455,27 @@ function Shell({ children }) {
         {toast && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-full shadow-lg flex items-center gap-2">
             <CheckCircle2 size={16} className="text-emerald-400" /> {toast}
+          </div>
+        )}
+        {pendingAlert && pendingAlert.items.length > 0 && (
+          <div className="fixed inset-0 z-[65] bg-black/40 flex items-center justify-center p-4" onClick={pendingAlert.dismiss}>
+            <div className="bg-white rounded-2xl p-5 max-w-xs w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 text-amber-600">
+                <Bell size={22} />
+                <span className="font-semibold text-slate-800">มีรายการรออนุมัติ</span>
+              </div>
+              <p className="text-sm text-slate-600 mt-2">
+                มีสมาชิกซื้อบัตร {pendingAlert.items.length} รายการ กำลังรอการอนุมัติสลิป
+              </p>
+              <div className="flex gap-2 mt-4">
+                <button onClick={pendingAlert.goToSlip} className="flex-1 text-white text-sm font-medium py-2.5 rounded-xl active:scale-[.98] transition" style={{ background: BRAND }}>
+                  ไปอนุมัติเลย
+                </button>
+                <button onClick={pendingAlert.dismiss} className="px-4 text-slate-600 text-sm font-medium py-2.5 rounded-xl bg-slate-100 active:scale-[.98] transition">
+                  ปิด
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -594,6 +615,7 @@ function App() {
   const [slipUploading, setSlipUploading] = useState(false);
   const [memberOpenUid, setMemberOpenUid] = useState(null); // uid ที่กำลังกางดูรายละเอียดในหน้า Member
   const [memberFilter, setMemberFilter] = useState(null);   // null | "active" | "expired" — กรองรายชื่อในหน้า Member
+  const [ackedPendingIds, setAckedPendingIds] = useState(() => new Set()); // payment id ที่ admin/editor เห็น popup แจ้งเตือนแล้ว
 
   // ---- Firebase Auth state ----
   useEffect(() => {
@@ -705,6 +727,12 @@ function App() {
     slip_url: p.slip_url,
     rejected_note: p.rejected_note ?? null,
   })), [paymentsRaw, passesById]);
+
+  // popup แจ้งเตือน admin/editor/approver (สิทธิ์เดียวกับที่เข้าหน้าอนุมัติสลิปได้) เมื่อมีรายการซื้อบัตรใหม่ที่ยังรออนุมัติและยังไม่เคยเห็น
+  const canApproveSlip = ADMIN_MENU.find((m) => m.key === "slip").roles.includes(user?.role);
+  const pendingApprovals = useMemo(() => payments.filter((p) => p.status === "Pending"), [payments]);
+  const newPendingApprovals = canApproveSlip ? pendingApprovals.filter((p) => !ackedPendingIds.has(p.id)) : [];
+  const dismissPendingAlert = () => setAckedPendingIds(new Set(pendingApprovals.map((p) => p.id)));
 
   // payment (บัตร Member) ที่หมดอายุตามวันที่แล้วแต่ยังค้าง status: Approved อยู่ → เขียน status: Expired กลับเข้า Firestore จริง
   // และถ้าใบที่หมดอายุคือใบล่าสุดของ user คนนั้น (ไม่มีบัตร Member ใบอื่นที่ใหม่กว่ามาแทน) ให้เปลี่ยนสถานะ user เป็น Guest ด้วย
@@ -1782,7 +1810,8 @@ function App() {
 
   })();
 
-  return <AppCtx.Provider value={{ toast, drawerProps }}>{page}</AppCtx.Provider>;
+  const pendingAlert = { items: view === "admin:slip" ? [] : newPendingApprovals, dismiss: dismissPendingAlert, goToSlip: () => { dismissPendingAlert(); go("admin:slip"); } };
+  return <AppCtx.Provider value={{ toast, drawerProps, pendingAlert }}>{page}</AppCtx.Provider>;
 }
 
 /* ---------- โปรไฟล์ของฉัน (แก้ไขชื่อ/เบอร์โทร/อีเมล/รูป) ---------- */
