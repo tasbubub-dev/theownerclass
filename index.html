@@ -75,7 +75,7 @@ const uploadFile = async (file, path) => {
   return ref.getDownloadURL();
 };
 
-const NOW = Date.now();
+let NOW = Date.now();
 const H = 3600 * 1000;
 const D = 24 * H;
 const BRAND = "#E8721C";
@@ -295,7 +295,7 @@ function MemberStats({ users, payments, filter, onFilter }) {
   const stats = useMemo(() => {
     const active = users.filter((u) => isActiveMember(u.uid, payments)).length;
     return { total: users.length, active, expired: users.length - active };
-  }, [users, payments]);
+  }, [users, payments, NOW]);
   const items = [
     { key: null, label: "ทั้งหมด", value: stats.total, color: "text-slate-800" },
     { key: "active", label: "ยังไม่หมดอายุ", value: stats.active, color: "text-emerald-600" },
@@ -488,6 +488,10 @@ function ScanCamera({ onDetect, onClose }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const [error, setError] = useState("");
+  // onDetect ถูกสร้างใหม่ทุกครั้งที่ App re-render (เช่น tick อัปเดต NOW ทุก 30 วิ) — ถ้าใส่ไว้ใน deps ตรงๆ
+  // effect นี้จะ cleanup แล้วขอ getUserMedia ใหม่ทุกครั้งที่ re-render จนกล้องเปิดไม่ติด/กระพริบ จึงต้องอ่านผ่าน ref แทน
+  const onDetectRef = useRef(onDetect);
+  onDetectRef.current = onDetect;
 
   useEffect(() => {
     let stream = null;
@@ -507,7 +511,7 @@ function ScanCamera({ onDetect, onClose }) {
         const code = window.jsQR && window.jsQR(imageData.data, imageData.width, imageData.height);
         if (code && code.data) {
           stopped = true;
-          onDetect(code.data);
+          onDetectRef.current(code.data);
           return;
         }
       }
@@ -531,7 +535,7 @@ function ScanCamera({ onDetect, onClose }) {
       if (raf) cancelAnimationFrame(raf);
       if (stream) stream.getTracks().forEach((t) => t.stop());
     };
-  }, [onDetect]);
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
@@ -621,6 +625,14 @@ function App() {
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => setFbUser(u));
     return unsub;
+  }, []);
+
+  // NOW ถูก set ครั้งเดียวตอนโหลดสคริปต์ — ถ้าเปิดแท็บค้างไว้ข้ามช่วงเวลาสำคัญ (เช่น ลิงก์ Zoom ที่เปิดก่อนเรียน 2 ชม., บัตรหมดอายุ)
+  // แอปจะยังเข้าใจว่าเป็นเวลาตอนโหลดหน้าอยู่ จึงต้อง tick อัปเดต NOW แล้ว re-render เป็นระยะ
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => { NOW = Date.now(); forceTick((t) => t + 1); }, 30000);
+    return () => clearInterval(id);
   }, []);
 
   // ---- โปรไฟล์ของตัวเอง (users/{uid}) — อ่านแยกจาก collection เต็ม เพราะ rule มักอนุญาตให้อ่านเอกสารตัวเองได้แน่นอนกว่า ----
@@ -741,10 +753,13 @@ function App() {
     stale.forEach(async (p) => {
       await db.collection("payments").doc(p.id).update({ status: "Expired" }).catch(() => {});
       if (p.passName === "Member" && latestMemberPayment(p.uid, payments)?.id === p.id) {
-        await db.collection("users").doc(p.uid).update({ memberStatus: "Guest" }).catch(() => {});
+        await db.collection("users").doc(p.uid).update({
+          memberStatus: "Guest",
+          memberExpire: firebase.firestore.Timestamp.fromMillis(p.expired_date),
+        }).catch(() => {});
       }
     });
-  }, [payments]);
+  }, [payments, NOW]);
 
   const bookings = useMemo(() => bookingsRaw.map((b) => {
     const sess = sessionsById[b.session_ref?.id];
@@ -787,9 +802,10 @@ function App() {
       const pay = payments.find((p) => p.id === b.paymentId);
       if (pay?.passName === "One" && pay.status === "Approved") {
         await db.collection("payments").doc(pay.id).update({ status: "Expired" }).catch(() => {});
+        await db.collection("users").doc(b.uid).update({ memberExpire: firebase.firestore.FieldValue.serverTimestamp() }).catch(() => {});
       }
     });
-  }, [bookings, classes, payments]);
+  }, [bookings, classes, payments, NOW]);
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
   const go = (v) => { setView(v); setDrawer(false); setBookSel(null); setAttnDetail(null); setCourseEdit(null); setCourseDeleteConfirm(null); setPassEdit(null); setSlipPreview(null); setMemberOpenUid(null); setMemberFilter(null); };
@@ -822,7 +838,7 @@ function App() {
         daysLeft: Math.max(0, Math.ceil((latest.expired_date - NOW) / D)) };
     }
     return { active: false };
-  }, [user, payments]);
+  }, [user, payments, NOW]);
 
   const canBook = membership.active || membership.pending;
   // ถ้าอายุสมาชิกจะหมดก่อนวันเริ่มคลาสนี้ (แม้วันนี้ยังไม่หมดอายุ) ให้ถือว่าจองคลาสนี้ไม่ได้ ต้องไปซื้อบัตรต่ออายุก่อน
@@ -900,7 +916,10 @@ function App() {
     });
     if (p.passName === "Member") {
       const owner = users.find((u) => u.uid === p.uid);
-      const userUpdate = { memberStatus: "Member" };
+      const userUpdate = {
+        memberStatus: "Member",
+        memberExpire: expired_date ? firebase.firestore.Timestamp.fromMillis(expired_date) : null,
+      };
       if (!owner?.code) userUpdate.code = nextMemberCode();
       await db.collection("users").doc(p.uid).update(userUpdate);
     }
@@ -1359,10 +1378,10 @@ function App() {
                 <CheckCircle2 size={40} />
                 <div className="mt-2 font-medium">เช็คอินแล้ว</div>
                 <div className="text-xs">{thDateTime(b.checkedInAt)} · {b.checkinVia === "scan" ? "สแกน QR" : "เข้า Zoom"}</div>
-                {isOnline && cls && cls.endTime > NOW && (
+                {cls && cls.endTime > NOW && cls.meeting_url && (
                   <a href={cls.meeting_url} target="_blank" rel="noreferrer"
                     className="mt-4 w-full max-w-[220px] text-white text-sm font-semibold py-3 rounded-xl bg-sky-600 active:scale-[.98] transition inline-flex items-center justify-center gap-1.5">
-                    <Video size={16} /> เข้าห้องเรียนออนไลน์
+                    <Video size={16} /> {isOnline ? "เข้าห้องเรียนออนไลน์" : "ลิงก์ Zoom สำรอง"}
                   </a>
                 )}
               </div>
@@ -2084,6 +2103,10 @@ function MemberAdmin({ users, payments, onBack, Shell, TopBar }) {
           expired_date: firebase.firestore.Timestamp.fromMillis(ms),
           status: ms > Date.now() ? "Approved" : "Expired",
         });
+        // ตั้งวันหมดอายุย้อนหลัง → payment กลายเป็น Expired ทันที ซึ่ง effect ตรวจบัตรหมดอายุจะไม่จับใบนี้แล้ว จึงต้องปรับ user เป็น Guest ตรงนี้เอง
+        const userExpireUpdate = { memberExpire: firebase.firestore.Timestamp.fromMillis(ms) };
+        if (ms <= Date.now()) userExpireUpdate.memberStatus = "Guest";
+        await db.collection("users").doc(editing).update(userExpireUpdate);
       }
     }
     setEditing(null);
