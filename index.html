@@ -752,6 +752,8 @@ function App() {
   // payment (บัตร Member) ที่หมดอายุตามวันที่แล้วแต่ยังค้าง status: Approved อยู่ → เขียน status: Expired กลับเข้า Firestore จริง
   // และถ้าใบที่หมดอายุคือใบล่าสุดของ user คนนั้น (ไม่มีบัตร Member ใบอื่นที่ใหม่กว่ามาแทน) ให้เปลี่ยนสถานะ user เป็น Guest ด้วย
   useEffect(() => {
+    // รอข้อมูลบัตรโหลดก่อน — ไม่งั้น periodPass ยังเป็น false แล้ว payment ถูกตั้ง Expired ไปโดยไม่ได้ปรับ user เป็น Guest
+    if (!passesList.length) return;
     const stale = payments.filter((p) => p.status === "Approved" && p.expired_date && p.expired_date <= NOW);
     stale.forEach(async (p) => {
       await db.collection("payments").doc(p.id).update({ status: "Expired" }).catch(() => {});
@@ -798,6 +800,8 @@ function App() {
   // booking ที่คลาสจบไปแล้ว (endTime ผ่านไปแล้ว) แต่ยังไม่ได้เช็คอิน → เขียน statusBooking: Expired กลับเข้า Firestore จริง
   // ถ้าจองด้วยบัตร One ที่อนุมัติแล้วและไม่ได้มาเช็คอินตามเวลา ให้บัตรนั้นหมดอายุไปด้วย (เหมือนกรณีเช็คอินแล้วใน checkIn())
   useEffect(() => {
+    // รอข้อมูลบัตรโหลดก่อน — ไม่งั้น singleUse ยังเป็น false แล้ว booking ถูกตั้ง Expired ไปโดยที่บัตร One ค้าง Approved ถาวร
+    if (!passesList.length) return;
     const stale = bookings.filter((b) => b.bookingStatus !== "Used" && b.bookingStatus !== "Expired"
       && classes.find((c) => c.id === b.classId)?.endTime <= NOW);
     stale.forEach(async (b) => {
