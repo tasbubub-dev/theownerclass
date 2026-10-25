@@ -162,7 +162,7 @@ const canSeeAdminHub = (role) => role !== "guest";
 
 // payment บัตร Member ล่าสุดของ user คนนี้ (ที่อนุมัติแล้ว) — ยึดตาม payment ที่อนุมัติล่าสุด ให้ตรงกับ membership บนโปรไฟล์
 function latestMemberPayment(uid, payments) {
-  return payments.filter((p) => p.uid === uid && p.status === "Approved" && p.passName === "Member")
+  return payments.filter((p) => p.uid === uid && p.status === "Approved" && p.periodPass)
     .sort((a, b) => (b.approved_at || b.createdAt || 0) - (a.approved_at || a.createdAt || 0))[0];
 }
 function isActiveMember(uid, payments) {
@@ -171,7 +171,7 @@ function isActiveMember(uid, payments) {
 }
 // payment บัตร Member ล่าสุด รวมที่หมดอายุไปแล้วด้วย (ต่างจาก latestMemberPayment ที่เอาไว้เช็คว่า active อยู่ไหมเท่านั้น) — ใช้แสดงผล/แก้ไขบัตรเก่าที่หมดอายุ
 function editableMemberPayment(uid, payments) {
-  return payments.filter((p) => p.uid === uid && p.passName === "Member" && (p.status === "Approved" || p.status === "Expired"))
+  return payments.filter((p) => p.uid === uid && p.periodPass && (p.status === "Approved" || p.status === "Expired"))
     .sort((a, b) => (b.approved_at || b.createdAt || 0) - (a.approved_at || a.createdAt || 0))[0];
 }
 // เรียงคนที่มีรหัส OWxxxx ก่อน (ตามรหัส) ส่วนคนที่ยังไม่มีรหัส (code ว่าง) ต่อท้ายสุด
@@ -731,6 +731,9 @@ function App() {
     id: p.id,
     uid: p.uid || p.user_ref?.id,
     passName: passesById[p.pass_ref?.id]?.name,
+    // แยกประเภทบัตรจาก duration_days (แบบเดียวกับที่หน้าจอแสดง "ใช้ครั้งเดียว" / "x วัน") ไม่ผูกกับชื่อบัตร เผื่อแอดมินตั้งชื่ออื่น
+    singleUse: !!passesById[p.pass_ref?.id] && !(passesById[p.pass_ref?.id].duration_days > 0),
+    periodPass: passesById[p.pass_ref?.id]?.duration_days > 0,
     status: p.status,
     createdAt: tsToMs(p.createdAt),
     approved_at: tsToMs(p.approved_at),
@@ -752,7 +755,7 @@ function App() {
     const stale = payments.filter((p) => p.status === "Approved" && p.expired_date && p.expired_date <= NOW);
     stale.forEach(async (p) => {
       await db.collection("payments").doc(p.id).update({ status: "Expired" }).catch(() => {});
-      if (p.passName === "Member" && latestMemberPayment(p.uid, payments)?.id === p.id) {
+      if (p.periodPass && latestMemberPayment(p.uid, payments)?.id === p.id) {
         await db.collection("users").doc(p.uid).update({
           memberStatus: "Guest",
           memberExpire: firebase.firestore.Timestamp.fromMillis(p.expired_date),
@@ -800,7 +803,7 @@ function App() {
     stale.forEach(async (b) => {
       await db.collection("bookings").doc(b.id).update({ statusBooking: "Expired" }).catch(() => {});
       const pay = payments.find((p) => p.id === b.paymentId);
-      if (pay?.passName === "One" && pay.status === "Approved") {
+      if (pay?.singleUse && pay.status === "Approved") {
         await db.collection("payments").doc(pay.id).update({ status: "Expired" }).catch(() => {});
         await db.collection("users").doc(b.uid).update({ memberExpire: firebase.firestore.FieldValue.serverTimestamp() }).catch(() => {});
       }
@@ -831,7 +834,7 @@ function App() {
     if (latest.status === "Pending") return { active: false, pending: true, type: latest.passName, payment: latest };
     if (latest.status === "Approved" || latest.status === "Expired") {
       const isExpiredStatus = latest.status === "Expired";
-      if (latest.passName === "One")
+      if (latest.singleUse)
         return { active: !isExpiredStatus, type: "One", payment: latest, expired_date: null, daysLeft: null };
       const active = !isExpiredStatus && latest.expired_date > NOW;
       return { active, type: "Member", payment: latest, expired_date: latest.expired_date,
@@ -879,8 +882,10 @@ function App() {
   const buyPass = async (passName) => {
     const pass = PASSES[passName];
     if (!pass) return;
-    if (membership.pending || (membership.active && !canRenewEarly)) {
-      showToast(membership.pending ? "อยู่ระหว่างรออนุมัติ" : "มีบัตรอยู่แล้ว");
+    // ผู้ถือบัตร One ที่ยังไม่ได้ใช้ → membership.active และ canRenewEarly เป็น false เสมอ จึงซื้อบัตรใดไม่ได้จนกว่าบัตร One จะถูกใช้/หมดอายุ
+    // ส่วนบัตรสมาชิกที่ใกล้หมดอายุ ต่ออายุได้เฉพาะบัตรแบบมีระยะเวลา (นับต่อจากวันหมดอายุเดิมใน approvePayment) ไม่ให้ซื้อบัตร One มาทับ
+    if (membership.pending || (membership.active && !canRenewEarly) || (canRenewEarly && !(pass.duration_days > 0))) {
+      showToast(membership.pending ? "อยู่ระหว่างรออนุมัติ" : canRenewEarly ? "ต่ออายุได้เฉพาะบัตรสมาชิก" : "มีบัตรอยู่แล้ว");
       go("payments");
       return;
     }
@@ -914,7 +919,7 @@ function App() {
       approved_by: user.uid,
       expired_date: expired_date ? firebase.firestore.Timestamp.fromMillis(expired_date) : null,
     });
-    if (p.passName === "Member") {
+    if (p.periodPass) {
       const owner = users.find((u) => u.uid === p.uid);
       const userUpdate = {
         memberStatus: "Member",
@@ -965,7 +970,7 @@ function App() {
     // บัตร One (ราคา 150 ใช้ครั้งเดียว) — เช็คอินแล้วให้บัตรหมดอายุทันที และตั้ง memberExpire ของ user เป็นเวลานี้
     const bk = bookings.find((b) => b.id === bookingId);
     const pay = bk && payments.find((p) => p.id === bk.paymentId);
-    if (pay?.passName === "One") {
+    if (pay?.singleUse) {
       await db.collection("payments").doc(pay.id).update({ status: "Expired" });
       await db.collection("users").doc(bk.uid).update({ memberExpire: firebase.firestore.FieldValue.serverTimestamp() });
     }
@@ -1160,8 +1165,8 @@ function App() {
             </div>
           )}
           {Object.values(PASSES).filter((p) => p.active).map((p) => {
-            const blocked = membership.pending || (membership.active && !canRenewEarly);
-            const blockedLabel = membership.pending ? "อยู่ระหว่างรออนุมัติ" : "มีบัตรอยู่แล้ว";
+            const blocked = membership.pending || (membership.active && !canRenewEarly) || (canRenewEarly && !(p.duration_days > 0));
+            const blockedLabel = membership.pending ? "อยู่ระหว่างรออนุมัติ" : canRenewEarly ? "ต่ออายุได้เฉพาะบัตรสมาชิก" : "มีบัตรอยู่แล้ว";
             return (
             <div key={p.name}
               onClick={() => !blocked && go("pay:" + p.name)}
